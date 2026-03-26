@@ -1,0 +1,1968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supply Planner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:      #1a1f24;
+  --bg2:     #242a31;
+  --bg3:     #2d343c;
+  --bg4:     #333F48;
+  --border:  #3a444c;
+  --accent:  #00A3E1;
+  --accent2: #4dd4ff;
+  --ok:      #34d399;
+  --warn:    #fbbf24;
+  --danger:  #f87171;
+  --overst:  #a78bfa;
+  --text:    #FFFFFF;
+  --muted:   #6b7780;
+  --mono:    'JetBrains Mono', monospace;
+  --sans:    'Montserrat', sans-serif;
+  --row-alt: rgba(255,255,255,.02);
+  --row-hover: rgba(0,163,225,.08);
+  --row-highlight: rgba(0,163,225,.14);
+  --row-hover-solid: #1e2e36;
+}
+.light-mode {
+  --bg:      #FFFFFF;
+  --bg2:     #f8f9fa;
+  --bg3:     #f0f2f3;
+  --bg4:     #D9D9D6;
+  --border:  #D9D9D6;
+  --accent:  #00A3E1;
+  --accent2: #0080b3;
+  --ok:      #2E7D32;
+  --warn:    #F57C00;
+  --danger:  #C62828;
+  --overst:  #7c3aed;
+  --text:    #333F48;
+  --muted:   #6b7780;
+  --row-alt: rgba(0,0,0,.02);
+  --row-hover: rgba(0,163,225,.06);
+  --row-highlight: rgba(0,163,225,.10);
+  --row-hover-solid: #e8f4fa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:13px;overflow-x:hidden}
+
+/* ── HEADER ── */
+.hdr{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;height:50px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:200}
+.hdr-logo{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--accent2);letter-spacing:-1px}
+.hdr-logo em{color:var(--muted);font-style:normal}
+.hdr-file{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.hdr-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+/* ── BUTTONS ── */
+.btn{padding:5px 13px;border-radius:5px;border:1px solid var(--border);font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;background:var(--bg3);color:var(--text)}
+.btn:hover{border-color:var(--accent);color:var(--accent2)}
+.btn-accent{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-accent:hover{background:#0090c7;border-color:#0090c7;color:#fff}
+.btn-sm{padding:3px 9px;font-size:11px}
+
+/* ── UPLOAD ── */
+#upload-screen{min-height:calc(100vh - 50px);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;padding:40px}
+.drop-card{background:var(--bg2);border:2px dashed var(--border);border-radius:14px;padding:56px 80px;text-align:center;cursor:pointer;transition:all .2s;max-width:480px;width:100%}
+.drop-card:hover,.drop-card.drag{border-color:var(--accent);background:var(--bg3)}
+.drop-icon{font-size:44px;margin-bottom:14px}
+.drop-title{font-size:20px;font-weight:700;margin-bottom:6px}
+.drop-sub{color:var(--muted);font-size:12px;line-height:1.6}
+.drop-tag{display:inline-block;margin-top:14px;background:var(--bg4);border:1px solid var(--border);border-radius:5px;padding:3px 12px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* ── MAIN APP ── */
+#app{display:none;flex-direction:column;height:calc(100vh - 50px);overflow:hidden}
+
+/* ── SERVICE FACTOR BAR ── */
+.sf-bar{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.sf-title{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.sf-months{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.sf-item{display:flex;flex-direction:column;align-items:center;gap:2px}
+.sf-label{font-size:9px;color:var(--muted);font-family:var(--mono);text-transform:uppercase}
+.sf-input{width:50px;background:var(--bg4);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:11px;padding:3px 5px;text-align:center;outline:none;transition:border-color .15s}
+.sf-input:focus{border-color:var(--accent)}
+.sf-sep{display:flex;flex-direction:column;align-items:center;gap:2px}
+.sf-sep-label{font-size:9px;color:var(--muted);font-family:var(--mono)}
+.sf-sep-input{width:42px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:4px;color:var(--overst);font-family:var(--mono);font-size:11px;padding:3px 5px;text-align:center;outline:none}
+.sf-sep-ss{background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.3);color:var(--ok)}
+.apply-btn-wrap{margin-left:auto}
+
+/* ── STATS ── */
+.stats{background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;gap:1px}
+.stat-v{font-family:var(--mono);font-size:17px;font-weight:600}
+.stat-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+.stat-danger .stat-v{color:var(--danger)}
+.stat-warn .stat-v{color:var(--warn)}
+.stat-ok .stat-v{color:var(--ok)}
+.stat-over .stat-v{color:var(--overst)}
+.sdiv{width:1px;height:30px;background:var(--border)}
+.stats-right{margin-left:auto;display:flex;gap:8px}
+
+/* ── TOOLBAR ── */
+.toolbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:7px 20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input[type=text],select{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:5px 9px;font-family:var(--sans);font-size:12px;outline:none;transition:border-color .15s}
+input[type=text]:focus,select:focus{border-color:var(--accent)}
+#search{width:200px}
+.result-count{font-size:11px;color:var(--muted);font-family:var(--mono)}
+
+/* ── TABLE ── */
+.tbl-wrap{flex:1;overflow:auto;position:relative}
+table{border-collapse:separate;border-spacing:0;font-size:12px;width:100%}
+thead th{
+  background:var(--bg2);border-bottom:2px solid var(--border);
+  padding:7px 10px;text-align:left;white-space:nowrap;
+  font-family:var(--mono);font-size:9px;font-weight:600;
+  color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
+  position:sticky;top:0;z-index:20;cursor:pointer;user-select:none
+}
+thead th:hover{color:var(--accent2)}
+/* Sticky first 2 columns: Status + Item ID */
+thead th:nth-child(1),thead th:nth-child(2){position:sticky;left:0;z-index:30;background:var(--bg2)}
+thead th:nth-child(2){left:90px;border-right:2px solid var(--border)}
+tbody td:nth-child(1),tbody td:nth-child(2){position:sticky;z-index:5;background:var(--bg)}
+tbody td:nth-child(1){left:0}
+tbody td:nth-child(2){left:90px;border-right:2px solid var(--border)}
+tbody tr:nth-child(even) td:nth-child(1),tbody tr:nth-child(even) td:nth-child(2){background:var(--bg2)}
+tbody tr:hover td:nth-child(1),tbody tr:hover td:nth-child(2),
+tbody tr.row-hl td:nth-child(1),tbody tr.row-hl td:nth-child(2){background:var(--row-hover-solid)!important}
+.th-month{background:var(--bg3)!important;border-left:1px solid var(--border)}
+.th-month-label{font-size:9px;color:var(--accent);margin-bottom:1px}
+tbody tr{cursor:pointer;transition:all .1s}
+tbody tr td{border-bottom:2px solid var(--border);border-top:1px solid transparent}
+tbody tr:nth-child(even) td{background:var(--row-alt)}
+/* Hover: strong top+bottom highlight band */
+tbody tr:hover td{background:var(--row-hover)!important;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent)!important}
+/* Click-to-lock highlight */
+tbody tr.row-hl td{background:var(--row-highlight)!important;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent)!important}
+tbody tr.r-below td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+tbody tr.r-over td:first-child{box-shadow:inset 3px 0 0 var(--overst)}
+tbody tr.r-ok td:first-child{box-shadow:inset 3px 0 0 transparent}
+tbody tr.r-below:hover td,tbody tr.r-below.row-hl td{border-top-color:var(--danger);border-bottom-color:var(--danger)!important}
+tbody tr.r-over:hover td,tbody tr.r-over.row-hl td{border-top-color:var(--overst);border-bottom-color:var(--overst)!important}
+td{padding:6px 10px;vertical-align:middle;white-space:nowrap}
+.td-mono{font-family:var(--mono)}
+.td-desc{max-width:180px;white-space:normal;line-height:1.3;font-size:11px}
+.td-r{text-align:right}
+
+/* month cells */
+.mc{display:flex;flex-direction:column;gap:2px;min-width:80px}
+.mc-status{font-size:9px;font-weight:700;letter-spacing:.3px}
+.mc-bb{font-family:var(--mono);font-size:11px}
+.mc-po{font-family:var(--mono);font-size:10px;display:flex;align-items:center;gap:3px}
+.mc-po-val{cursor:pointer;border-radius:3px;padding:1px 4px;border:1px solid transparent;transition:all .15s;min-width:28px;text-align:right}
+.mc-po-val:hover{border-color:var(--accent);background:var(--bg4)}
+.mc-po-val.editing{border-color:var(--accent)!important;background:var(--bg4)!important;outline:none;color:var(--text)}
+.mc-ghost{font-family:var(--mono);font-size:9px;color:var(--warn);opacity:.5;cursor:pointer;padding:1px 3px;border-radius:3px;transition:all .15s;white-space:nowrap}
+.mc-ghost:hover{opacity:1;background:rgba(251,191,36,.12);text-decoration:none}
+.mc-foot{font-family:var(--mono);font-size:9px;color:var(--muted);display:flex;gap:6px;margin-top:2px;opacity:.7}
+.is-th{background:var(--bg2);border-bottom:2px solid var(--border);padding:7px 10px;text-align:left;font-family:var(--mono);font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;z-index:10}
+.is-status-select{font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);cursor:pointer;width:170px}
+.is-status-select.active{border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.06);color:var(--ok)}
+.is-status-select.to_be_discontinued{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.06);color:var(--warn)}
+.is-status-select.discontinued{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.06);color:var(--danger)}
+.is-status-select.custom{border-color:rgba(79,142,247,.4);background:rgba(79,142,247,.06);color:var(--accent2)}
+/* Item status filter pills */
+.is-pill{font-size:10px;font-weight:600;font-family:var(--mono);padding:3px 9px;border-radius:12px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap}
+.is-pill:hover{opacity:.85}
+.is-pill.selected.active-pill{background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.5);color:var(--ok)}
+.is-pill.selected.tbd-pill{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--warn)}
+.is-pill.selected.disc-pill{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.5);color:var(--danger)}
+.is-pill.selected.custom-pill{background:rgba(79,142,247,.12);border-color:rgba(79,142,247,.5);color:var(--accent2)}
+/* Row left-border by item lifecycle status */
+/* Item lifecycle status — full outline contour */
+tbody tr.is-active td{border-top:1px solid transparent;border-bottom:1px solid transparent}
+tbody tr.is-tbd td{border-top:1px solid rgba(251,191,36,.2);border-bottom:1px solid rgba(251,191,36,.2);background:rgba(251,191,36,.025)}
+tbody tr.is-tbd td:first-child{border-left:3px solid rgba(251,191,36,.7)}
+tbody tr.is-tbd td:last-child{border-right:1px solid rgba(251,191,36,.2)}
+tbody tr.is-disc td{border-top:1px solid rgba(248,113,113,.2);border-bottom:1px solid rgba(248,113,113,.2);background:rgba(248,113,113,.025)}
+tbody tr.is-disc td:first-child{border-left:3px solid rgba(248,113,113,.7)}
+tbody tr.is-disc td:last-child{border-right:1px solid rgba(248,113,113,.2)}
+tbody tr.is-custom td{border-top:1px solid rgba(79,142,247,.2);border-bottom:1px solid rgba(79,142,247,.2);background:rgba(79,142,247,.025)}
+tbody tr.is-custom td:first-child{border-left:3px solid rgba(79,142,247,.7)}
+tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
+.st-below{color:var(--danger)}
+.st-ok{color:var(--ok)}
+.st-over{color:var(--overst)}
+
+/* badges */
+.badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;font-family:var(--mono)}
+.b-danger{background:rgba(248,113,113,.12);color:var(--danger)}
+.b-ok{background:rgba(52,211,153,.12);color:var(--ok)}
+.b-warn{background:rgba(251,191,36,.12);color:var(--warn)}
+.b-over{background:rgba(167,139,250,.12);color:var(--overst)}
+.b-muted{background:rgba(90,101,133,.12);color:var(--muted)}
+.b-demand-spike{background:rgba(251,191,36,.15);color:var(--warn);font-size:9px;padding:1px 5px;border:1px solid rgba(251,191,36,.3)}
+.b-demand-drop{background:rgba(0,163,225,.12);color:var(--accent);font-size:9px;padding:1px 5px;border:1px solid rgba(0,163,225,.3)}
+
+/* ── DETAIL PANEL ── */
+#panel{display:none;position:fixed;right:0;top:50px;bottom:0;width:400px;background:var(--bg2);border-left:1px solid var(--border);z-index:300;flex-direction:column;overflow:hidden}
+#panel.open{display:flex}
+.ph{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px}
+.ph-info{flex:1}
+.ph-id{font-family:var(--mono);font-size:10px;color:var(--accent2);margin-bottom:3px}
+.ph-name{font-weight:700;font-size:13px;line-height:1.3}
+.ph-supp{color:var(--muted);font-size:11px;margin-top:3px}
+.ph-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0;line-height:1}
+.ph-close:hover{color:var(--text)}
+.pb{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:14px}
+.ps-title{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+.pg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pkv-l{font-size:10px;color:var(--muted);margin-bottom:2px}
+.pkv-v{font-family:var(--mono);font-size:14px;font-weight:600}
+
+/* month timeline in panel */
+.ptl{}
+.ptl-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.ptl-mo{font-family:var(--mono);font-size:10px;color:var(--muted);width:28px;flex-shrink:0}
+.ptl-bar{flex:1;height:16px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative}
+.ptl-fill{height:100%;border-radius:3px}
+.ptl-val{font-family:var(--mono);font-size:10px;width:52px;text-align:right;flex-shrink:0}
+.ptl-po{font-family:var(--mono);font-size:9px;color:var(--ok);width:90px;text-align:right;flex-shrink:0;display:flex;gap:4px;justify-content:flex-end}
+
+/* ── PAGINATION ── */
+.pag{background:var(--bg2);border-top:1px solid var(--border);padding:7px 20px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.pag button{background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 9px;cursor:pointer;font-size:11px}
+.pag button:hover{border-color:var(--accent)}
+.pag button:disabled{opacity:.3;cursor:not-allowed}
+.pag-info{margin-left:auto;font-family:var(--mono)}
+
+/* ── LOADING ── */
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:40px;color:var(--muted)}
+.spin{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg2)}
+.tab{padding:0 20px;height:36px;display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);transition:all .15s;user-select:none}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent2);border-bottom-color:var(--accent)}
+.tab-icon{font-size:14px}
+
+/* ── VENDOR SUMMARY STRIP ── */
+#vendor-strip{display:none;background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 20px;gap:20px;align-items:center;flex-wrap:wrap}
+#vendor-strip.visible{display:flex}
+.vs-name{font-weight:700;font-size:13px;color:var(--accent2);white-space:nowrap}
+.vs-divider{width:1px;height:28px;background:var(--border)}
+.vs-stat{display:flex;flex-direction:column;gap:1px}
+.vs-v{font-family:var(--mono);font-size:15px;font-weight:600}
+.vs-l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.vs-months{display:flex;gap:6px;align-items:center;overflow-x:auto;flex:1}
+.vs-mo{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:52px}
+.vs-mo-label{font-size:9px;color:var(--muted);font-family:var(--mono);text-transform:uppercase}
+.vs-mo-val{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ok)}
+.vs-mo-val.has-erp{color:var(--accent2)}
+.vs-mo-val.has-sugg{color:var(--warn)}
+.vs-mo-val.has-both{color:var(--accent2)}
+.vs-mo-val.no-po{color:var(--border)}
+
+/* ── PO ANALYSIS VIEW ── */
+#po-view{display:none;flex-direction:column;height:calc(100vh - 50px);overflow:hidden}
+#po-view.active{display:flex}
+.pov-toolbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pov-wrap{flex:1;overflow:auto;padding:20px}
+.pov-grid{display:flex;flex-direction:column;gap:16px}
+
+/* Supplier PO card */
+.supp-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.supp-card-hdr{display:flex;align-items:center;gap:14px;padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);cursor:pointer}
+.supp-card-name{font-weight:700;font-size:13px;flex:1}
+.supp-card-meta{display:flex;gap:16px;align-items:center}
+.supp-meta-kv{display:flex;flex-direction:column;gap:1px;align-items:flex-end}
+.supp-meta-v{font-family:var(--mono);font-size:13px;font-weight:600}
+.supp-meta-l{font-size:10px;color:var(--muted)}
+.supp-card-body{overflow:hidden;transition:max-height .3s ease}
+.supp-card-body.collapsed{max-height:0}
+
+/* PO month heatmap table */
+.po-table{width:100%;border-collapse:collapse;font-size:11px}
+.po-table th{background:var(--bg3);padding:6px 10px;text-align:left;font-family:var(--mono);font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+.po-table th.mo-th{text-align:right;min-width:64px;border-left:1px solid var(--border)}
+.po-table td{padding:5px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.po-table td.mo-td{text-align:right;border-left:1px solid var(--border);font-family:var(--mono);font-size:11px}
+.po-table tr:last-child td{border-bottom:none}
+.po-cell{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.po-erp{color:var(--accent2);font-size:10px;font-weight:600}
+.po-manual{color:var(--warn);font-size:10px;font-weight:600}
+.po-total{font-weight:700}
+.heat-0{color:var(--border)}
+.heat-low{color:var(--ok)}
+.heat-mid{color:var(--warn)}
+.heat-high{color:var(--danger)}
+
+/* totals row */
+.po-table tr.totals-row td{background:var(--bg3);font-weight:700;font-family:var(--mono);border-top:2px solid var(--border)}
+
+/* summary bar at top of PO view */
+.po-summary{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.po-sum-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;flex:1;min-width:140px}
+.po-sum-v{font-family:var(--mono);font-size:20px;font-weight:700;margin-bottom:2px}
+.po-sum-l{font-size:11px;color:var(--muted)}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* ── THEME TOGGLE ── */
+.theme-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.theme-toggle-label{font-size:10px;color:var(--muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
+.toggle-track{width:36px;height:20px;border-radius:10px;background:var(--bg4);border:1px solid var(--border);position:relative;transition:all .25s}
+.toggle-track:hover{border-color:var(--accent)}
+.toggle-knob{width:14px;height:14px;border-radius:50%;background:var(--accent);position:absolute;top:2px;left:2px;transition:transform .25s}
+.light-mode .toggle-knob{transform:translateX(16px)}
+.light-mode .toggle-track{background:var(--accent);border-color:var(--accent)}
+.light-mode .toggle-knob{background:#fff}
+
+/* ── SONANCE LOGO ── */
+.hdr-brand{display:flex;align-items:center;gap:10px}
+.hdr-brand img{height:18px;opacity:.85}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-brand">
+    <div class="hdr-logo">supply<em>/</em>planner</div>
+  </div>
+  <div class="hdr-file" id="hdr-file"></div>
+  <div class="hdr-right">
+    <button class="btn btn-sm" id="reload-btn" onclick="triggerUpload()" style="display:none">↑ New File</button>
+    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+      <span class="theme-toggle-label" id="theme-label">dark</span>
+      <div class="toggle-track"><div class="toggle-knob"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- UPLOAD -->
+<div id="upload-screen">
+  <div class="drop-card" id="drop-zone" onclick="triggerUpload()">
+    <div class="drop-icon">📦</div>
+    <div class="drop-title">James Supply Planning Report</div>
+    <div class="drop-sub">Drag or click to upload the ERP export<br>Planning is calculated automatically</div>
+    <div class="drop-tag">.xlsx &nbsp;·&nbsp; ERP Export</div>
+  </div>
+</div>
+<input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
+
+<!-- APP -->
+<div id="app">
+
+  <!-- TAB NAV -->
+  <div class="tabs">
+    <div class="tab active" id="tab-plan" onclick="switchTab('plan')"><span class="tab-icon">📋</span> Supply Plan</div>
+    <div class="tab" id="tab-po" onclick="switchTab('po')"><span class="tab-icon">📊</span> PO Analysis by Supplier</div>
+    <div class="tab" id="tab-lt" onclick="switchTab('lt')"><span class="tab-icon">⏱</span> Lead Times</div>
+    <div class="tab" id="tab-is" onclick="switchTab('is')"><span class="tab-icon">🏷</span> Item Status</div>
+  </div>
+
+  <!-- PLAN VIEW -->
+  <div id="plan-view" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+
+  <!-- SERVICE FACTORS -->
+  <div class="sf-bar">
+    <div class="sf-title">Service Factors</div>
+    <div class="sf-months" id="sf-inputs"></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="sf-item">
+        <div class="sf-label" style="color:var(--ok)">SS×</div>
+        <input class="sf-input sf-sep-ss" type="number" id="ss-mult" value="3" min="0" step="0.5" style="width:42px">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="sf-item">
+        <div class="sf-label" style="color:var(--overst)">OS×</div>
+        <input class="sf-input sf-sep-input" type="number" id="os-mult" value="5" min="0" step="0.5" style="width:42px">
+      </div>
+    </div>
+    <div class="apply-btn-wrap">
+      <button class="btn btn-accent btn-sm" onclick="recalcAll()">↺ Recalculate</button>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat"><div class="stat-v" id="st-total">—</div><div class="stat-l">Items</div></div>
+    <div class="sdiv"></div>
+    <div class="stat stat-danger"><div class="stat-v" id="st-below">—</div><div class="stat-l">Below SS</div></div>
+    <div class="stat stat-ok"><div class="stat-v" id="st-ok">—</div><div class="stat-l">OK</div></div>
+    <div class="stat stat-over"><div class="stat-v" id="st-over">—</div><div class="stat-l">Overstock</div></div>
+    <div class="sdiv"></div>
+    <div class="stat"><div class="stat-v" id="st-val">—</div><div class="stat-l">Inv Value</div></div>
+    <div class="stat"><div class="stat-v" id="st-po-val">—</div><div class="stat-l">Open POs Value</div></div>
+    <div class="stats-right">
+      <button class="btn btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+  </div>
+
+  <!-- VENDOR SUMMARY STRIP (shows when a supplier is selected) -->
+  <div id="vendor-strip">
+    <div class="vs-name" id="vs-name">—</div>
+    <div class="vs-divider"></div>
+    <div class="vs-stat"><div class="vs-v" id="vs-items">—</div><div class="vs-l">Items</div></div>
+    <div class="vs-stat"><div class="vs-v" id="vs-val" style="color:var(--accent2)">—</div><div class="vs-l">Inv Value</div></div>
+    <div class="vs-stat"><div class="vs-v" id="vs-po-open" style="color:var(--ok)">—</div><div class="vs-l">Open PO $</div></div>
+    <div class="vs-stat"><div class="vs-v" id="vs-below" style="color:var(--danger)">—</div><div class="vs-l">Below SS</div></div>
+    <div class="vs-divider"></div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);white-space:nowrap">POs TO PLACE / MO</div>
+    <div class="vs-months" id="vs-months"></div>
+    <button class="btn btn-sm" onclick="switchTab('po')" style="white-space:nowrap;margin-left:8px">View analysis →</button>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Item, description, supplier…" oninput="applyFilters()">
+    <select id="f-status" onchange="applyFilters()">
+      <option value="">All Status</option>
+      <option value="BELOW">🔴 Below SS</option>
+      <option value="OK">🟢 OK</option>
+      <option value="OVERSTOCK">🟣 Overstock</option>
+    </select>
+    <select id="f-month" onchange="applyFilters()">
+      <option value="">All Months</option>
+    </select>
+    <select id="f-supplier" onchange="applyFilters()">
+      <option value="">All Suppliers</option>
+    </select>
+    <div id="f-item-status" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:10px;color:var(--muted);margin-right:2px">Items:</span>
+      <button class="is-pill active-pill selected"    onclick="toggleISPill('active',this)"            data-is="active">Active</button>
+      <button class="is-pill tbd-pill selected"       onclick="toggleISPill('to_be_discontinued',this)" data-is="to_be_discontinued">To Be Disc.</button>
+      <button class="is-pill disc-pill"               onclick="toggleISPill('discontinued',this)"       data-is="discontinued">Discontinued</button>
+      <button class="is-pill custom-pill"             onclick="toggleISPill('custom',this)"             data-is="custom">Custom</button>
+    </div>
+    <select id="f-sort" onchange="applyFilters()">
+      <option value="status">Sort: Status</option>
+      <option value="moh">Sort: MOH ↑</option>
+      <option value="mau">Sort: Uso/Mes ↓</option>
+      <option value="val">Sort: $ Valor ↓</option>
+      <option value="item">Sort: Item ID</option>
+    </select>
+    <span class="result-count" id="result-count"></span>
+  </div>
+
+  <!-- TABLE -->
+  <div class="tbl-wrap">
+    <div class="loading" id="tbl-loading"><div class="spin"></div> Processing…</div>
+    <table id="main-table" style="display:none">
+      <thead id="tbl-head"></thead>
+      <tbody id="tbl-body"></tbody>
+    </table>
+  </div>
+
+  <!-- PAGINATION -->
+  <div class="pag">
+    <button id="btn-prev" onclick="prevPage()" disabled>‹ Prev</button>
+    <button id="btn-next" onclick="nextPage()">Next ›</button>
+    <span class="pag-info" id="pag-info"></span>
+  </div>
+
+  </div><!-- /plan-view -->
+
+  <!-- PO ANALYSIS VIEW -->
+  <div id="po-view">
+    <div class="pov-toolbar">
+      <input type="text" id="po-search" placeholder="Search supplier…" oninput="renderPOView()" style="width:200px">
+      <select id="po-month-filter" onchange="renderPOView()">
+        <option value="">All Months</option>
+      </select>
+      <select id="po-sort" onchange="renderPOView()">
+        <option value="name">Sort: Supplier A–Z</option>
+        <option value="items">Sort: # Items ↓</option>
+        <option value="val">Sort: $ Inventory ↓</option>
+        <option value="po">Sort: $ PO Total ↓</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="po-only-active" onchange="renderPOView()" style="accent-color:var(--accent)">
+        Only with pending POs
+      </label>
+      <div style="margin-left:auto;display:flex;gap:14px;align-items:center;font-size:11px">
+        <span style="color:var(--accent2);font-weight:600">↦ ERP (ya existe)</span>
+        <span style="color:var(--warn);font-weight:600">◈ Sugerido</span>
+        <span style="color:var(--accent2);font-weight:600">✎ Manual (editado)</span>
+      </div>
+      <span class="result-count" id="po-result-count" style="margin-left:4px"></span>
+    </div>
+    <div class="pov-wrap">
+      <div class="po-summary" id="po-summary"></div>
+      <div class="pov-grid" id="pov-grid"></div>
+    </div>
+  </div>
+
+  <!-- DEAD STOCK VIEW -->
+  <!-- LEAD TIMES VIEW -->
+  <div id="lt-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <!-- toolbar -->
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--muted)">Lead time in <strong style="color:var(--text)">months</strong>. If a supplier has no LT configured, the fallback <strong style="color:var(--warn)">3×</strong> MAU is used as SS.</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="exportLTCSV()">⬇ Export CSV for ERP</button>
+        <button class="btn btn-sm" onclick="clearAllLT()" style="color:var(--danger)">🗑 Clear All</button>
+      </div>
+    </div>
+    <!-- summary -->
+    <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div class="stat"><div class="stat-v" id="lt-configured" style="color:var(--ok)">—</div><div class="stat-l">Suppliers Configured</div></div>
+      <div class="stat"><div class="stat-v" id="lt-pending" style="color:var(--warn)">—</div><div class="stat-l">No LT (using 3×)</div></div>
+      <div class="stat"><div class="stat-v" id="lt-items-covered" style="color:var(--accent2)">—</div><div class="stat-l">Items with Real LT</div></div>
+      <div class="stat"><div class="stat-v" id="lt-items-override" style="color:var(--muted)">—</div><div class="stat-l">Items with Override</div></div>
+    </div>
+    <!-- supplier LT table -->
+    <div style="flex:1;overflow:auto;display:flex;gap:0">
+      <!-- LEFT: supplier list -->
+      <div style="width:480px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto">
+        <div style="padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:grid;grid-template-columns:1fr 90px 90px 60px;gap:8px">
+          <span>Supplier</span><span style="text-align:center">Lead Time</span><span style="text-align:center">Items</span><span style="text-align:center">SS Actual</span>
+        </div>
+        <div id="lt-supplier-list"></div>
+      </div>
+      <!-- RIGHT: item overrides for selected supplier -->
+      <div style="flex:1;overflow-y:auto">
+        <div id="lt-item-panel" style="padding:20px">
+          <div style="color:var(--muted);font-size:13px;margin-top:40px;text-align:center">← Select a supplier to view its items</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ITEM STATUS VIEW -->
+  <div id="is-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="is-search" placeholder="Search item or description…" oninput="renderISView()" style="width:220px">
+      <select id="is-supplier" onchange="renderISView()">
+        <option value="">All Suppliers</option>
+      </select>
+      <select id="is-filter-status" onchange="renderISView()">
+        <option value="">All Statuses</option>
+        <option value="active">Active</option>
+        <option value="to_be_discontinued">To Be Discontinued</option>
+        <option value="discontinued">Discontinued</option>
+        <option value="custom">Custom</option>
+      </select>
+      <span class="result-count" id="is-count"></span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--muted)">Bulk change for supplier:</span>
+        <select id="is-bulk-supplier" style="font-size:11px">
+          <option value="">— select —</option>
+        </select>
+        <select id="is-bulk-status" style="font-size:11px">
+          <option value="active">Active</option>
+          <option value="to_be_discontinued">To Be Discontinued</option>
+          <option value="discontinued">Discontinued</option>
+          <option value="custom">Custom</option>
+        </select>
+        <button class="btn btn-sm" onclick="bulkSetStatus()">Apply</button>
+        <button class="btn btn-sm" onclick="exportISCSV()" style="margin-left:8px">⬇ Export CSV</button>
+      </div>
+    </div>
+    <!-- summary pills -->
+    <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+      <div class="stat"><div class="stat-v" id="is-cnt-active" style="color:var(--ok)">—</div><div class="stat-l">Active</div></div>
+      <div class="stat"><div class="stat-v" id="is-cnt-tbd" style="color:var(--warn)">—</div><div class="stat-l">To Be Discontinued</div></div>
+      <div class="stat"><div class="stat-v" id="is-cnt-disc" style="color:var(--danger)">—</div><div class="stat-l">Discontinued</div></div>
+      <div class="stat"><div class="stat-v" id="is-cnt-custom" style="color:var(--accent2)">—</div><div class="stat-l">Custom</div></div>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <table style="border-collapse:collapse;font-size:12px;width:100%">
+        <thead>
+          <tr>
+            <th class="is-th">Item ID</th>
+            <th class="is-th">Description</th>
+            <th class="is-th">Supplier</th>
+            <th class="is-th" style="text-align:right">On Hand</th>
+            <th class="is-th" style="text-align:right">MAU</th>
+            <th class="is-th" style="text-align:center;width:180px">Status</th>
+          </tr>
+        </thead>
+        <tbody id="is-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<!-- DETAIL PANEL -->
+<div id="panel">
+  <div class="ph">
+    <div class="ph-info">
+      <div class="ph-id" id="p-id"></div>
+      <div class="ph-name" id="p-name"></div>
+      <div class="ph-supp" id="p-supp"></div>
+    </div>
+    <button class="ph-close" onclick="closePanel()">✕</button>
+  </div>
+  <div class="pb" id="p-body"></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// THEME
+// ─────────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('sp_theme');
+  if (saved === 'light') {
+    document.documentElement.classList.add('light-mode');
+  }
+})();
+
+function toggleTheme() {
+  const isLight = document.documentElement.classList.toggle('light-mode');
+  localStorage.setItem('sp_theme', isLight ? 'light' : 'dark');
+  const label = document.getElementById('theme-label');
+  if (label) label.textContent = isLight ? 'light' : 'dark';
+}
+
+// ─────────────────────────────────────────────
+// ROW HIGHLIGHT (click to lock highlight)
+// ─────────────────────────────────────────────
+document.addEventListener('click', function(e) {
+  const row = e.target.closest('#main-table tbody tr');
+  if (row && !e.target.closest('.mc-po-val')) {
+    document.querySelectorAll('#main-table tbody tr.row-hl').forEach(r => r.classList.remove('row-hl'));
+    row.classList.add('row-hl');
+  }
+});
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+const MONTHS = ['MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC','JAN','FEB'];
+// Default service factors matching the Master tab
+const DEFAULT_SF = [1.17, 1.17, 1.23, 1.25, 1.11, 1.21, 1.10, 1.15, 1.00, 0.91, 1.10, 1.10];
+
+let rawItems = [];      // parsed from ERP, immutable
+let items = [];         // recalculated items
+let filtered = [];
+let manualPOs = {};     // { itemId: { monthIdx: qty } }  — user overrides
+let currentPage = 1;
+const PAGE = 60;
+
+// Lead time state — persisted in localStorage
+// ltSupplier: { supplierName: months }  e.g. { "ACME": 2.5 }
+// ltItem:     { itemId: months }        — overrides supplier default
+let ltSupplier = {};
+let ltItem     = {};
+let ltSelectedSupplier = null;
+let editMode   = false;   // when true, all PO cells are freely editable
+
+function saveLT() {
+  try {
+    localStorage.setItem('sp_lt_supplier', JSON.stringify(ltSupplier));
+    localStorage.setItem('sp_lt_item',     JSON.stringify(ltItem));
+  } catch(e) {}
+}
+function loadLT() {
+  try {
+    ltSupplier = JSON.parse(localStorage.getItem('sp_lt_supplier') || '{}');
+    ltItem     = JSON.parse(localStorage.getItem('sp_lt_item')     || '{}');
+  } catch(e) { ltSupplier = {}; ltItem = {}; }
+}
+function getLT(item) {
+  // Returns lead time in months for an item, or null if not configured
+  if (ltItem[item.itemId] !== undefined)   return ltItem[item.itemId];
+  if (ltSupplier[item.suppName] !== undefined) return ltSupplier[item.suppName];
+  return null;
+}
+loadLT();
+
+// ─────────────────────────────────────────────
+// ITEM STATUS STATE  { itemId: 'active' | 'to_be_discontinued' | 'discontinued' | 'custom' }
+// Default: 'active' for all. Persisted in localStorage.
+// ─────────────────────────────────────────────
+let itemStatus = {};
+function saveIS() {
+  try { localStorage.setItem('sp_item_status', JSON.stringify(itemStatus)); } catch(e) {}
+}
+function loadIS() {
+  try { itemStatus = JSON.parse(localStorage.getItem('sp_item_status') || '{}'); } catch(e) { itemStatus = {}; }
+}
+function getIS(itemId) {
+  return itemStatus[itemId] || 'active';
+}
+function setIS(itemId, status) {
+  if (status === 'active') delete itemStatus[itemId]; // active is default, no need to store
+  else itemStatus[itemId] = status;
+  saveIS();
+}
+loadIS();
+
+// ─────────────────────────────────────────────
+// UPLOAD
+// ─────────────────────────────────────────────
+function triggerUpload() { document.getElementById('file-input').click(); }
+
+function loadFile(file) {
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('hdr-file').textContent = file.name;
+  document.getElementById('reload-btn').style.display = 'block';
+  document.getElementById('tbl-loading').style.display = 'flex';
+  document.getElementById('main-table').style.display = 'none';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      parseERP(raw);
+    } catch(err) { alert('Error: ' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', ()  => dz.classList.remove('drag'));
+  dz.addEventListener('drop',      e  => { e.preventDefault(); dz.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+  document.getElementById('file-input').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+  // Sync theme label on load
+  const themeLabel = document.getElementById('theme-label');
+  if (themeLabel && document.documentElement.classList.contains('light-mode')) themeLabel.textContent = 'light';
+});
+
+// ─────────────────────────────────────────────
+// PARSE ERP EXPORT (James Supply Planning)
+// ─────────────────────────────────────────────
+function parseERP(raw) {
+  // Find header row
+  let hi = raw.findIndex(r => r && r.some(c => String(c||'').trim() === 'Item ID'));
+  if (hi < 0) { alert('Header row not found. Is this the correct file?'); return; }
+  const hdr = raw[hi].map(h => String(h||'').trim());
+
+  const col = name => hdr.findIndex(h => h === name);
+  const n = v => (v === null || v === undefined || v === '') ? 0 : parseFloat(v) || 0;
+
+  // ERP columns
+  const C = {
+    itemId:   col('Item ID'),
+    desc:     col('Description'),
+    onHand:   col('Qty On Hand'),
+    avail:    col('Qty Available FG Locs'),
+    wip:      col('WIP Qty Available'),
+    uom:      col('Std UOM'),
+    stdCost:  col('Standard Cost (Includes F&D)'),
+    value:    col('On Hand $ Value (Std. $ Cost)'),
+    suppId:   col('Supplier ID'),
+    suppName: col('Supplier Name'),
+    unitPx:   col('Supplier Unit Price'),
+    openPO:   col('Open PO Qty'),
+    openPO$:  col('Open PO $'),
+    pastDuePO:  col('PO Qty Month < 0'),
+    pastDuePO$: col('PO $ Month < 0'),
+    totalUse: col('Total Usage'),
+    mau:      col('Monthly Average Usage'),
+    projMau:  col('Projected Monthly Usage'),
+  };
+
+  // PO Qty per month from ERP (EB columns give us projected balance with existing POs)
+  // Month PO columns: "PO Qty Month 0" .. "PO Qty Month 11"
+  const erpPOCols = [];
+  for (let i = 0; i <= 11; i++) {
+    erpPOCols.push(col(`PO Qty Month ${i}`));
+  }
+  // EB columns
+  const ebCols = [];
+  for (let i = 0; i <= 11; i++) {
+    ebCols.push(col(`EB ${i}`));
+  }
+
+  rawItems = [];
+  const seenIds = new Set();
+  for (let i = hi + 1; i < raw.length; i++) {
+    const r = raw[i];
+    if (!r || !r[C.itemId]) continue;
+    const itemId = String(r[C.itemId]).trim();
+    if (seenIds.has(itemId)) continue;  // skip duplicate rows
+    seenIds.add(itemId);
+    const rawMau  = n(r[C.mau]);
+    const projMau = n(r[C.projMau]);
+    const mau = projMau || rawMau;
+    const erpPOs = erpPOCols.map(c => c >= 0 ? Math.max(0, n(r[c])) : 0);
+
+    rawItems.push({
+      itemId,
+      desc:       String(r[C.desc] || '').trim(),
+      onHand:     n(r[C.onHand]),
+      avail:      n(r[C.avail]),
+      wip:        n(r[C.wip]),
+      uom:        String(r[C.uom] || 'EA').trim(),
+      stdCost:    n(r[C.stdCost]),
+      value:      n(r[C.value]),
+      suppId:     String(r[C.suppId] || '').trim(),
+      suppName:   String(r[C.suppName] || '').trim(),
+      unitPx:     n(r[C.unitPx]),
+      openPO:     n(r[C.openPO]),
+      openPO$:    n(r[C.openPO$]),
+      pastDuePO:  n(r[C.pastDuePO]),
+      pastDuePO$: n(r[C.pastDuePO$]),
+      totalUse:   n(r[C.totalUse]),
+      mau,
+      rawMau,
+      projMau,
+      erpPOs,
+    });
+  }
+
+  buildSFInputs();
+  buildSupplierFilter();
+  buildPOMonthFilter();
+  buildMonthFilter();
+  buildISSupplierFilter();
+  recalcAll();
+  document.getElementById('tbl-loading').style.display = 'none';
+  document.getElementById('main-table').style.display = 'table';
+}
+
+// ─────────────────────────────────────────────
+// SERVICE FACTOR UI
+// ─────────────────────────────────────────────
+function buildSFInputs() {
+  const cont = document.getElementById('sf-inputs');
+  cont.innerHTML = MONTHS.map((m, i) => `
+    <div class="sf-item">
+      <div class="sf-label">${m}</div>
+      <input class="sf-input" type="number" id="sf-${i}" value="${DEFAULT_SF[i]}" min="0" step="0.01">
+    </div>`).join('');
+}
+
+function getSF() {
+  return MONTHS.map((_, i) => parseFloat(document.getElementById(`sf-${i}`).value) || 1);
+}
+function getSSMult() { return parseFloat(document.getElementById('ss-mult').value) || 3; }
+function getOSMult() { return parseFloat(document.getElementById('os-mult').value) || 5; }
+
+// ─────────────────────────────────────────────
+// RECALCULATE — replicates Master tab logic
+// ─────────────────────────────────────────────
+function recalcAll() {
+  const sf = getSF();
+  const ssMult = getSSMult();
+  const osMult = getOSMult();
+
+  // Current month fraction — how much of this month is left to consume
+  // e.g. on day 15 of a 31-day month → 16/31 remaining ≈ 0.52
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysRemaining = daysInMonth - today.getDate() + 1; // +1 includes today
+  const monthFraction = daysRemaining / daysInMonth;
+
+  items = rawItems.map(raw => {
+    const mau = raw.mau;
+
+    // Lead time: item override → supplier default → 3× fallback
+    const lt = getLT(raw);
+    const ssMult = lt !== null ? lt : getSSMult();
+
+    // PMU per month = MAU × Service Factor
+    // Month 0 (current month): adjust by days remaining so we only plan what's left
+    const pmu = sf.map((f, i) => i === 0 ? mau * f * monthFraction : mau * f);
+
+    // SS and OS per month (SS uses lead time or fallback multiplier)
+    const ss = pmu.map(p => Math.ceil(p * ssMult));
+    const os = pmu.map(p => Math.ceil(p * getOSMult()));
+
+    // Month-by-month simulation
+    // Beginning Balance month 0 = On Hand + past-due POs (Month < 0)
+    const months = [];
+    let bb = raw.onHand;  // starting stock
+
+    for (let i = 0; i < 12; i++) {
+      const erpPO = raw.erpPOs[i] || 0;
+      const manualPO = (manualPOs[raw.itemId] && manualPOs[raw.itemId][i]) || 0;
+      const totalPO = erpPO + manualPO;
+
+      const endBB = Math.round(bb + totalPO - pmu[i]);
+
+      let status;
+      if (mau === 0 || mau === 999) status = 'no-usage';
+      else if (endBB < ss[i]) status = 'BELOW';
+      else if (endBB > os[i]) status = 'OVERSTOCK';
+      else status = 'OK';
+
+      months.push({ pmu: pmu[i], ss: ss[i], os: os[i], erpPO, manualPO, totalPO, bb: endBB, status });
+      bb = endBB;
+    }
+
+    // Overall status = worst month in first 3 months
+    let worstStatus = 'no-usage';
+    if (mau > 0 && mau !== 999) {
+      const first3 = months.slice(0, 3).map(m => m.status);
+      if (first3.includes('BELOW')) worstStatus = 'BELOW';
+      else if (first3.every(s => s === 'OVERSTOCK')) worstStatus = 'OVERSTOCK';
+      else worstStatus = 'OK';
+    }
+
+    // MOH = On Hand / MAU
+    const moh = mau > 0 ? raw.onHand / mau : null;
+    const mohwpo = mau > 0 ? (raw.onHand + raw.openPO) / mau : null;
+
+    // Auto-suggested POs: cascading second pass so suggestions from prior months
+    // affect the BB available in later months, and monthZeroed blocks a suggestion
+    // from entering the cascade (forcing deficit forward to the next months).
+    const suggested = [];
+    let bbCascade = raw.onHand;
+    for (let i = 0; i < 12; i++) {
+      const erpPO    = raw.erpPOs[i] || 0;
+      const manualPO = (manualPOs[raw.itemId] && manualPOs[raw.itemId][i]) || 0;
+      const bbAfter  = Math.round(bbCascade + erpPO + manualPO - pmu[i]);
+      let sugg = 0;
+      if (mau > 0 && mau !== 999 && bbAfter < ss[i]) {
+        // zeroed month with no manual override → force 0, cascade deficit forward
+        if (monthZeroed[i] && manualPO === 0) {
+          sugg = 0;
+        } else {
+          sugg = Math.max(0, Math.ceil(ss[i] - bbAfter));
+        }
+      }
+      suggested.push(sugg);
+      bbCascade = Math.round(bbCascade + erpPO + manualPO + sugg - pmu[i]);
+    }
+
+    // Demand anomaly: flag when projected usage diverges from historical average
+    let demandFlag = null;
+    if (raw.rawMau > 0 && raw.projMau > 0) {
+      const ratio = raw.projMau / raw.rawMau;
+      if (ratio >= 1.25) demandFlag = { type: 'spike', ratio, label: `↑ ${Math.round((ratio - 1) * 100)}%` };
+      else if (ratio <= 0.75) demandFlag = { type: 'drop', ratio, label: `↓ ${Math.round((1 - ratio) * 100)}%` };
+    }
+
+    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, demandFlag, ltMult: ssMult, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'fallback' };
+  });
+
+  updateStats();
+  applyFilters();
+}
+
+// ─────────────────────────────────────────────
+// STATS
+// ─────────────────────────────────────────────
+function updateStats() {
+  // Exclude no-usage items from supply plan stats
+  const active = items.filter(i => i.status !== 'no-usage');
+  const total = active.length;
+  const below = active.filter(i => i.status === 'BELOW').length;
+  const ok    = active.filter(i => i.status === 'OK').length;
+  const over  = active.filter(i => i.status === 'OVERSTOCK').length;
+  const val   = active.reduce((s, i) => s + i.value, 0);
+  const poVal = active.reduce((s, i) => s + i.openPO$, 0);
+  document.getElementById('st-total').textContent = total.toLocaleString();
+  document.getElementById('st-below').textContent = below.toLocaleString();
+  document.getElementById('st-ok').textContent = ok.toLocaleString();
+  document.getElementById('st-over').textContent = over.toLocaleString();
+  document.getElementById('st-val').textContent = '$' + (val/1000).toFixed(0) + 'k';
+  document.getElementById('st-po-val').textContent = '$' + (poVal/1000).toFixed(0) + 'k';
+}
+
+// ─────────────────────────────────────────────
+// FILTERS & SORT
+// ─────────────────────────────────────────────
+function buildSupplierFilter() {
+  const sel = document.getElementById('f-supplier');
+  const suppliers = [...new Set(rawItems.map(i => i.suppName).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Suppliers</option>' +
+    suppliers.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+}
+
+function buildMonthFilter() {
+  const sel = document.getElementById('f-month');
+  sel.innerHTML = '<option value="">All Months</option>' +
+    MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+}
+
+function toggleISPill(status, btn) {
+  btn.classList.toggle('selected');
+  applyFilters();
+}
+
+function getSelectedISPills() {
+  const pills = document.querySelectorAll('#f-item-status .is-pill.selected');
+  return [...pills].map(p => p.dataset.is);
+}
+
+function applyFilters() {
+  const search      = document.getElementById('search').value.toLowerCase();
+  const fStatus     = document.getElementById('f-status').value;
+  const fMonth      = document.getElementById('f-month').value;
+  const fSupp       = document.getElementById('f-supplier').value;
+  const fSort       = document.getElementById('f-sort').value;
+  const selectedIS  = getSelectedISPills();  // array of selected statuses
+
+  filtered = items.filter(item => {
+    if (item.status === 'no-usage') return false;
+    if (fSupp && item.suppName !== fSupp) return false;
+    if (search) {
+      const hay = `${item.itemId} ${item.desc} ${item.suppName}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    // Item lifecycle status — if any pills selected, item must match one
+    if (selectedIS.length > 0 && !selectedIS.includes(getIS(item.itemId))) return false;
+    // Month filter
+    if (fMonth !== '') {
+      const mi = parseInt(fMonth);
+      const monthStatus = item.months[mi]?.status;
+      if (fStatus) {
+        if (monthStatus !== fStatus) return false;
+      } else {
+        if (monthStatus !== 'BELOW' && monthStatus !== 'OVERSTOCK') return false;
+      }
+    } else {
+      if (fStatus && item.status !== fStatus) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  const statusOrder = { 'BELOW': 0, 'OK': 1, 'OVERSTOCK': 2, 'no-usage': 3 };
+  filtered.sort((a, b) => {
+    if (fSort === 'status') return statusOrder[a.status] - statusOrder[b.status];
+    if (fSort === 'moh') return (a.mohwpo ?? 999) - (b.mohwpo ?? 999);
+    if (fSort === 'mau') return b.mau - a.mau;
+    if (fSort === 'val') return b.value - a.value;
+    return a.itemId.localeCompare(b.itemId);
+  });
+
+  document.getElementById('result-count').textContent = `${filtered.length.toLocaleString()} items`;
+  currentPage = 1;
+  renderTable();
+  updateVendorStrip();
+}
+
+// ─────────────────────────────────────────────
+// TABLE RENDER
+// ─────────────────────────────────────────────
+// Per-month zero toggle: monthZeroed[i] = true means all suggestions for month i are forced to 0
+let monthZeroed = {};
+
+function toggleMonthZero(mi) {
+  monthZeroed[mi] = !monthZeroed[mi];
+  recalcAll();
+}
+
+function buildHeaders() {
+  const head = document.getElementById('tbl-head');
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysRemaining = daysInMonth - today.getDate() + 1;
+  const pct = Math.round(daysRemaining / daysInMonth * 100);
+
+  const monthCols = MONTHS.map((m, i) => {
+    const zeroed = monthZeroed[i];
+    return `<th class="th-month" style="min-width:110px${i === 0 ? ';border-top:2px solid var(--warn)' : ''}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:4px">
+        <div class="th-month-label">${m}${i === 0
+          ? ` <span style="color:var(--warn);font-size:8px;font-weight:700">${pct}%</span>`
+          : ''}</div>
+        <button onclick="event.stopPropagation();toggleMonthZero(${i})"
+          title="${zeroed ? 'Restore suggestions' : 'Zero out suggestions'}"
+          style="font-size:9px;padding:1px 5px;border-radius:4px;cursor:pointer;flex-shrink:0;
+                 border:1px solid ${zeroed ? 'rgba(248,113,113,.5)' : 'var(--border)'};
+                 background:${zeroed ? 'rgba(248,113,113,.12)' : 'var(--bg)'};
+                 color:${zeroed ? 'var(--danger)' : 'var(--muted)'};
+                 font-family:var(--mono);white-space:nowrap">
+          ${zeroed ? '✕' : '⊘'}
+        </button>
+      </div>
+      <div id="mh-erp-${i}" style="font-size:9px;color:var(--accent2);font-family:var(--mono);font-weight:600;line-height:1.5">—</div>
+      <div id="mh-sugg-${i}" style="font-size:9px;color:var(--warn);font-family:var(--mono);font-weight:600;line-height:1.5">—</div>
+      ${i === 0 ? `<div style="font-size:8px;color:var(--warn);line-height:1.4">${daysRemaining}d remaining</div>` : ''}
+    </th>`;
+  }).join('');
+  head.innerHTML = `<tr>
+    <th>Status</th>
+    <th>Item ID</th>
+    <th>Description</th>
+    <th>Supplier</th>
+    <th class="td-r">On Hand</th>
+    <th class="td-r">Open PO</th>
+    <th class="td-r">MAU</th>
+    <th class="td-r">MOH+PO</th>
+    ${monthCols}
+  </tr>`;
+}
+
+function renderTable() {
+  buildHeaders();
+  const start = (currentPage - 1) * PAGE;
+  const page = filtered.slice(start, start + PAGE);
+  const tbody = document.getElementById('tbl-body');
+
+  tbody.innerHTML = page.map(item => {
+    const badgeMap = {
+      'BELOW':     '<span class="badge b-danger">BELOW SS</span>',
+      'OK':        '<span class="badge b-ok">OK</span>',
+      'OVERSTOCK': '<span class="badge b-over">OVERSTOCK</span>',
+      'no-usage':  '<span class="badge b-muted">NO USE</span>',
+    };
+    const rowClass = { 'BELOW': 'r-below', 'OVERSTOCK': 'r-over' }[item.status] || 'r-ok';
+    const isClass  = { 'active': 'is-active', 'to_be_discontinued': 'is-tbd', 'discontinued': 'is-disc', 'custom': 'is-custom' }[getIS(item.itemId)] || 'is-active';
+    const mohDisp = item.mohwpo !== null ? item.mohwpo.toFixed(1) : '∞';
+    const mohClr = item.mohwpo !== null && item.mohwpo < 3 ? 'color:var(--danger);font-weight:700'
+                 : item.mohwpo !== null && item.mohwpo < 6 ? 'color:var(--warn);font-weight:700' : '';
+
+    const monthCells = item.months.map((m, mi) => {
+      const stCls = { 'BELOW': 'st-below', 'OK': 'st-ok', 'OVERSTOCK': 'st-over' }[m.status] || '';
+      const stTxt = { 'BELOW': '▼ BELOW', 'OK': '● OK', 'OVERSTOCK': '▲ OVER' }[m.status] || '—';
+      const hasSugg = item.suggested[mi] > 0 && !((manualPOs[item.itemId]||{})[mi] >= 0);
+      const manVal = (manualPOs[item.itemId] || {})[mi];
+      const origSugg = item.suggested[mi] || 0;
+      // If month is zeroed, force suggestion display to 0 (but preserve manual edits)
+      const isZeroed = monthZeroed[mi] && manVal === undefined;
+      const displayPO = isZeroed ? 0 : (manVal !== undefined ? manVal : (hasSugg ? origSugg : 0));
+      const poColor = manVal !== undefined ? 'var(--accent2)' : isZeroed ? 'var(--muted)' : hasSugg ? 'var(--warn)' : 'var(--muted)';
+      // Show ghost of original suggestion when user has manually overridden
+      const wasEdited = manVal !== undefined;
+      const showGhost = wasEdited && origSugg > 0 && manVal !== origSugg;
+
+      // Months of stock = BB ÷ PMU (how many months current BB covers)
+      const mohStock = m.pmu > 0 ? (m.bb / m.pmu) : null;
+      const mohColor = mohStock === null ? 'var(--muted)'
+                     : mohStock < 0     ? 'var(--danger)'
+                     : mohStock < 1     ? 'var(--danger)'
+                     : mohStock < 3     ? 'var(--warn)'
+                     : 'var(--ok)';
+
+      return `<td class="th-month">
+        <div class="mc">
+          <div class="mc-status ${stCls}">${stTxt}</div>
+          <div class="mc-bb">${Math.round(m.bb).toLocaleString()}</div>
+          <div class="mc-po">
+            <span style="color:var(--muted);font-size:9px">PO:</span>
+            <span class="mc-po-val"
+              style="color:${poColor}"
+              contenteditable="true"
+              spellcheck="false"
+              data-item="${esc(item.itemId)}"
+              data-month="${mi}"
+              onblur="handlePOEdit(this)"
+              onfocus="this.classList.add('editing')"
+              onclick="event.stopPropagation()"
+            >${displayPO > 0 ? Math.round(displayPO) : '—'}</span>${showGhost
+              ? `<span class="mc-ghost" title="Original suggestion: ${Math.round(origSugg)} — click to revert"
+                  onclick="event.stopPropagation();revertPO('${esc(item.itemId)}',${mi})"
+                  >← ${Math.round(origSugg)}</span>`
+              : ''}
+          </div>
+          ${m.erpPO > 0 ? `<div class="mc-erp">ERP:${Math.round(m.erpPO)}</div>` : ''}
+          <div class="mc-foot"><span>SS:${Math.round(m.ss)}</span><span style="color:${mohColor}">${mohStock !== null ? mohStock.toFixed(1) + 'm' : '—'}</span></div>
+        </div>
+      </td>`;
+    }).join('');
+
+    const isColors = { active: 'var(--text)', to_be_discontinued: 'var(--warn)', discontinued: 'var(--danger)', custom: 'var(--accent2)' };
+    const isColor = isColors[getIS(item.itemId)] || 'var(--text)';
+
+    const dfBadge = item.demandFlag
+      ? `<span class="badge ${item.demandFlag.type === 'spike' ? 'b-demand-spike' : 'b-demand-drop'}"
+          title="Projected usage vs historical avg: ${item.demandFlag.type === 'spike' ? 'higher' : 'lower'} than normal (Proj: ${item.projMau.toFixed(1)} vs Avg: ${item.rawMau.toFixed(1)})"
+        >${item.demandFlag.label}</span>`
+      : '';
+
+    return `<tr class="${rowClass} ${isClass}" data-id="${esc(item.itemId)}" onclick="openPanel('${esc(item.itemId)}')">
+      <td style="min-width:90px">
+        ${badgeMap[item.status] || ''}
+        ${dfBadge}
+        ${item.pastDuePO > 0 && item.status === 'BELOW'
+          ? `<span title="Past-due PO: ${fmt(item.pastDuePO)} ${item.uom} — review before ordering" style="cursor:help;margin-left:4px;font-size:11px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);border-radius:4px;padding:1px 5px;color:var(--warn);font-weight:700">⚠ PO ${fmt(item.pastDuePO)}</span>`
+          : item.pastDuePO > 0
+          ? `<span title="Past-due PO: ${fmt(item.pastDuePO)} ${item.uom}" style="cursor:help;margin-left:4px;font-size:10px;color:var(--muted)">↦${fmt(item.pastDuePO)}</span>`
+          : ''}
+      </td>
+      <td class="td-mono" style="font-size:11px;color:${isColor};font-weight:${isColor !== 'var(--text)' ? '600' : 'normal'}">${esc(item.itemId)}</td>
+      <td class="td-desc" style="color:${isColor}">${esc(item.desc)}</td>
+      <td style="max-width:130px;white-space:normal;font-size:11px;color:var(--muted)">${esc(item.suppName)}</td>
+      <td class="td-r td-mono">${fmt(item.onHand)}</td>
+      <td class="td-r td-mono">${fmt(item.openPO)}</td>
+      <td class="td-r td-mono">${item.mau > 0 && item.mau !== 999 ? item.mau.toFixed(1) : '—'}</td>
+      <td class="td-r td-mono" style="${mohClr}">${mohDisp}</td>
+      ${monthCells}
+    </tr>`;
+  }).join('');
+
+  const totalPages = Math.ceil(filtered.length / PAGE);
+  document.getElementById('btn-prev').disabled = currentPage <= 1;
+  document.getElementById('btn-next').disabled = currentPage >= totalPages;
+  document.getElementById('pag-info').textContent = `Page ${currentPage} of ${totalPages} · ${filtered.length.toLocaleString()} items`;
+
+  updateMonthHeaderTotals();
+}
+
+function updateMonthHeaderTotals() {
+  // Sum ERP PO $ and suggested PO $ across ALL filtered items (not just current page)
+  MONTHS.forEach((_, mi) => {
+    let erpTotal  = 0;
+    let suggTotal = 0;
+    filtered.forEach(item => {
+      const erpQty  = item.months[mi]?.erpPO || 0;
+      const suggQty = item.suggested[mi] || 0;
+      const cost    = item.unitPx || item.stdCost || 0;
+      erpTotal  += erpQty  * cost;
+      suggTotal += suggQty * cost;
+    });
+    const erpEl  = document.getElementById(`mh-erp-${mi}`);
+    const suggEl = document.getElementById(`mh-sugg-${mi}`);
+    if (erpEl)  erpEl.textContent  = erpTotal  > 0 ? `↦ $${fmtK(erpTotal)}`  : '—';
+    if (suggEl) suggEl.textContent = suggTotal > 0 ? `◈ $${fmtK(suggTotal)}` : (monthZeroed[mi] ? '✕ $0' : '—');
+    if (suggEl && monthZeroed[mi]) suggEl.style.color = 'var(--danger)';
+    else if (suggEl) suggEl.style.color = 'var(--warn)';
+  });
+}
+
+// ─────────────────────────────────────────────
+// INLINE PO EDITING
+// ─────────────────────────────────────────────
+function handlePOEdit(el) {
+  el.classList.remove('editing');
+  const itemId = el.dataset.item;
+  const mi = parseInt(el.dataset.month);
+  const raw = el.textContent.trim().replace(/[^0-9.\-]/g, '');
+  const val = parseFloat(raw);
+
+  if (!manualPOs[itemId]) manualPOs[itemId] = {};
+
+  if (isNaN(val) || raw === '' || raw === '—') {
+    delete manualPOs[itemId][mi];
+    el.textContent = '—';
+  } else {
+    manualPOs[itemId][mi] = Math.max(0, Math.round(val));
+    el.textContent = manualPOs[itemId][mi];
+  }
+  recalcAll();
+  scrollToItem(itemId);
+}
+
+function revertPO(itemId, mi) {
+  if (manualPOs[itemId]) {
+    delete manualPOs[itemId][mi];
+    if (Object.keys(manualPOs[itemId]).length === 0) delete manualPOs[itemId];
+  }
+  recalcAll();
+  scrollToItem(itemId);
+}
+
+function scrollToItem(itemId) {
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`#main-table tbody tr[data-id="${CSS.escape(itemId)}"]`);
+    if (row) {
+      // Clear old highlights, highlight edited row
+      document.querySelectorAll('#main-table tbody tr.row-hl').forEach(r => r.classList.remove('row-hl'));
+      row.classList.add('row-hl');
+      row.scrollIntoView({ block: 'center', behavior: 'instant' });
+      // Brief flash to make it obvious
+      row.style.outline = '2px solid var(--accent)';
+      setTimeout(() => { row.style.outline = ''; }, 1200);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// DETAIL PANEL
+// ─────────────────────────────────────────────
+function openPanel(itemId) {
+  const item = items.find(i => i.itemId === itemId);
+  if (!item) return;
+
+  document.getElementById('p-id').textContent = `${item.itemId} · ${item.uom}`;
+  document.getElementById('p-name').textContent = item.desc;
+  document.getElementById('p-supp').textContent = `${item.suppName}` + (item.unitPx ? ` · $${item.unitPx.toFixed(2)}/u` : '');
+
+  const statusBadge = {
+    'BELOW':     '<span class="badge b-danger">BELOW SS</span>',
+    'OK':        '<span class="badge b-ok">OK</span>',
+    'OVERSTOCK': '<span class="badge b-over">OVERSTOCK</span>',
+    'no-usage':  '<span class="badge b-muted">SIN USO</span>',
+  }[item.status] || '';
+
+  // BB timeline
+  const maxBB = Math.max(...item.months.map(m => Math.abs(m.bb)), 1);
+  const timeline = item.months.map((m, i) => {
+    const pct = Math.min(Math.abs(m.bb) / maxBB * 100, 100);
+    const clr = m.bb < 0 ? 'var(--danger)' : m.bb < m.ss ? 'var(--warn)' : 'var(--accent)';
+    // Three distinct PO sources
+    const erpQty    = m.erpPO || 0;
+    const manualQty = (manualPOs[item.itemId] || {})[i];
+    const suggQty   = item.suggested[i] || 0;
+    // What actually goes into the simulation
+    const displayQty = manualQty !== undefined ? manualQty : suggQty;
+    const erpTag = erpQty > 0
+      ? `<span style="color:var(--accent2);font-size:10px;font-weight:600" title="PO ya en ERP">↦ ${erpQty}</span>`
+      : '';
+    const adjTag = displayQty > 0
+      ? `<span style="color:${manualQty !== undefined ? 'var(--accent2)' : 'var(--warn)'};font-size:10px;font-weight:600" title="${manualQty !== undefined ? 'PO editado manualmente' : 'PO sugerido por herramienta'}">${manualQty !== undefined ? '✎' : '◈'} ${Math.round(displayQty)}</span>`
+      : '';
+    const poTags = [erpTag, adjTag].filter(Boolean).join(' ');
+    return `<div class="ptl-row">
+      <div class="ptl-mo">${MONTHS[i]}</div>
+      <div class="ptl-bar"><div class="ptl-fill" style="width:${pct}%;background:${clr}"></div></div>
+      <div class="ptl-val" style="color:${clr}">${Math.round(m.bb)}</div>
+      <div class="ptl-po">${poTags || ''}</div>
+    </div>`;
+  }).join('');
+
+  // PO suggestion summary
+  const totalSugg = item.suggested.reduce((s, v) => s + v, 0);
+  const totalManual = Object.values(manualPOs[item.itemId] || {}).reduce((s, v) => s + v, 0);
+
+  document.getElementById('p-body').innerHTML = `
+    <div>${statusBadge}</div>
+
+    ${item.pastDuePO > 0 ? `
+    <div style="background:${item.status === 'BELOW' ? 'rgba(251,191,36,.08)' : 'rgba(79,142,247,.06)'};border:1px solid ${item.status === 'BELOW' ? 'rgba(251,191,36,.3)' : 'rgba(79,142,247,.2)'};border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">${item.status === 'BELOW' ? '⚠️' : 'ℹ️'}</span>
+        <span style="font-weight:700;font-size:12px;color:${item.status === 'BELOW' ? 'var(--warn)' : 'var(--accent2)'}">
+          PAST-DUE PO PENDING RECEIPT
+        </span>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--muted)">Quantity</div>
+          <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${item.status === 'BELOW' ? 'var(--warn)' : 'var(--accent2)'}">
+            ${fmt(item.pastDuePO)} ${item.uom}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted)">Value</div>
+          <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${item.status === 'BELOW' ? 'var(--warn)' : 'var(--accent2)'}">
+            $${(item.pastDuePO$).toFixed(0)}
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;border-top:1px solid ${item.status === 'BELOW' ? 'rgba(251,191,36,.2)' : 'rgba(79,142,247,.15)'};padding-top:8px;margin-top:2px">
+        ${item.status === 'BELOW'
+          ? `This item shows <strong style="color:var(--warn)">BELOW SS</strong> but has a past-due PO of <strong>${fmt(item.pastDuePO)} ${item.uom}</strong> that will enter BB next month when received. <strong>Verify if this PO covers your need before placing a new order.</strong>`
+          : `Past-due PO that will be reflected in BB next month when received.`
+        }
+      </div>
+    </div>` : ''}
+
+    <div>
+      <div class="ps-title">Inventory Position</div>
+      <div class="pg">
+        <div><div class="pkv-l">On Hand</div><div class="pkv-v">${fmt(item.onHand)} ${item.uom}</div></div>
+        <div><div class="pkv-l">Open PO</div><div class="pkv-v">${fmt(item.openPO)} ${item.uom}</div></div>
+        <div><div class="pkv-l">Std Cost</div><div class="pkv-v">$${item.stdCost.toFixed(2)}</div></div>
+        <div><div class="pkv-l">$ On Hand</div><div class="pkv-v">$${item.value.toFixed(0)}</div></div>
+        <div><div class="pkv-l">MOH</div><div class="pkv-v" style="color:${item.moh < 3 ? 'var(--danger)' : item.moh < 6 ? 'var(--warn)' : 'var(--ok)'}">${item.moh !== null ? item.moh.toFixed(1) : '∞'}</div></div>
+        <div><div class="pkv-l">MOH+PO</div><div class="pkv-v" style="color:${item.mohwpo < 3 ? 'var(--danger)' : item.mohwpo < 6 ? 'var(--warn)' : 'var(--ok)'}">${item.mohwpo !== null ? item.mohwpo.toFixed(1) : '∞'}</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="ps-title">Usage & Planning</div>
+      <div class="pg">
+        <div><div class="pkv-l">MAU (proyectado)</div><div class="pkv-v">${item.mau > 0 && item.mau !== 999 ? item.mau.toFixed(2) : '—'}</div></div>
+        <div><div class="pkv-l">Total Historical Usage</div><div class="pkv-v">${fmt(item.totalUse)}</div></div>
+        ${totalSugg > 0 ? `<div><div class="pkv-l" style="color:var(--warn)">PO Sugerido Total</div><div class="pkv-v" style="color:var(--warn)">${Math.round(totalSugg)} ${item.uom}</div></div>` : ''}
+        ${totalManual > 0 ? `<div><div class="pkv-l" style="color:var(--accent2)">PO Manual Total</div><div class="pkv-v" style="color:var(--accent2)">${Math.round(totalManual)} ${item.uom}</div></div>` : ''}
+      </div>
+    </div>
+
+    <div>
+      <div class="ps-title">Projected Monthly Balance (BB)</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;display:flex;gap:10px;flex-wrap:wrap">
+        <span><span style="color:var(--accent)">■</span> Normal</span>
+        <span><span style="color:var(--warn)">■</span> Bajo SS</span>
+        <span><span style="color:var(--danger)">■</span> Negativo</span>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <span style="color:var(--accent2)">↦ ERP</span>
+          <span style="color:var(--warn)">◈ Sugerido</span>
+          <span style="color:var(--accent2)">✎ Manual</span>
+        </span>
+      </div>
+      <div class="ptl">${timeline}</div>
+    </div>
+
+    <div>
+      <div class="ps-title">SS & OS por Mes</div>
+      <div style="font-size:11px;margin-bottom:8px;padding:6px 10px;border-radius:6px;background:${item.ltSource === 'item' ? 'rgba(79,142,247,.08)' : item.ltSource === 'supplier' ? 'rgba(74,222,128,.08)' : 'rgba(251,191,36,.08)'};border:1px solid ${item.ltSource === 'item' ? 'rgba(79,142,247,.2)' : item.ltSource === 'supplier' ? 'rgba(74,222,128,.2)' : 'rgba(251,191,36,.2)'}">
+        <span style="color:var(--muted)">SS calculado con: </span>
+        <strong style="color:${item.ltSource === 'item' ? 'var(--accent2)' : item.ltSource === 'supplier' ? 'var(--ok)' : 'var(--warn)'}">
+          ${item.ltSource === 'item' ? `${item.ltMult} months (item override)` : item.ltSource === 'supplier' ? `${item.ltMult} months (supplier lead time)` : `3× MAU (fallback — no lead time)`}
+        </strong>
+        &nbsp;<span style="font-size:10px;color:var(--muted);cursor:pointer;text-decoration:underline" onclick="switchTab('lt')">configure →</span>
+      </div>
+      ${item.months.map((m, i) => `
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:11px">
+          <span style="font-family:var(--mono);color:var(--muted);width:28px">${MONTHS[i]}</span>
+          <span style="font-family:var(--mono)">PMU: ${m.pmu.toFixed(1)}</span>
+          <span style="color:var(--ok);font-family:var(--mono)">SS: ${m.ss}</span>
+          <span style="color:var(--overst);font-family:var(--mono)">OS: ${m.os}</span>
+        </div>`).join('')}
+    </div>
+  `;
+
+  document.getElementById('panel').classList.add('open');
+}
+
+function closePanel() { document.getElementById('panel').classList.remove('open'); }
+
+// ─────────────────────────────────────────────
+// PAGINATION
+// ─────────────────────────────────────────────
+function prevPage() { currentPage--; renderTable(); document.querySelector('.tbl-wrap').scrollTop = 0; }
+function nextPage() { currentPage++; renderTable(); document.querySelector('.tbl-wrap').scrollTop = 0; }
+
+// ─────────────────────────────────────────────
+// EXPORT CSV
+// ─────────────────────────────────────────────
+function exportCSV() {
+  const sf = getSF();
+  const hdr = ['Item ID','Description','Supplier','Status','On Hand','Open PO','MAU','MOH','MOH+PO',
+    ...MONTHS.flatMap(m => [`BB_${m}`,`Status_${m}`,`SS_${m}`,`PO_ERP_${m}`,`PO_Manual_${m}`])
+  ];
+  const rows = filtered.map(item => [
+    item.itemId, item.desc, item.suppName, item.status,
+    item.onHand, item.openPO, item.mau.toFixed(2),
+    item.moh !== null ? item.moh.toFixed(2) : '',
+    item.mohwpo !== null ? item.mohwpo.toFixed(2) : '',
+    ...item.months.flatMap(m => [
+      Math.round(m.bb), m.status, m.ss, Math.round(m.erpPO), Math.round(m.manualPO)
+    ])
+  ]);
+  const csv = [hdr, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'supply_plan.csv';
+  a.click();
+}
+
+// ─────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────
+function switchTab(tab) {
+  ['plan','po','lt','is'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  });
+  document.getElementById('plan-view').style.display = tab === 'plan' ? 'flex' : 'none';
+  document.getElementById('po-view').style.display   = tab === 'po'   ? 'flex' : 'none';
+  document.getElementById('lt-view').style.display   = tab === 'lt'   ? 'flex' : 'none';
+  document.getElementById('is-view').style.display   = tab === 'is'   ? 'flex' : 'none';
+  if (tab === 'po') renderPOView();
+  if (tab === 'lt') renderLTView();
+  if (tab === 'is') renderISView();
+}
+
+// ─────────────────────────────────────────────
+// VENDOR STRIP (shows when supplier is filtered)
+// ─────────────────────────────────────────────
+function updateVendorStrip() {
+  const fSupp = document.getElementById('f-supplier').value;
+  const strip = document.getElementById('vendor-strip');
+
+  if (!fSupp) {
+    strip.classList.remove('visible');
+    return;
+  }
+
+  const suppItems = items.filter(i => i.suppName === fSupp);
+  const totalVal = suppItems.reduce((s, i) => s + i.value, 0);
+  const totalPO$ = suppItems.reduce((s, i) => s + i.openPO$, 0);
+  const belowCount = suppItems.filter(i => i.status === 'BELOW').length;
+
+  // Split ERP PO $ vs suggested/manual $ per month
+  const erpValByMonthVS = MONTHS.map((_, mi) =>
+    suppItems.reduce((s, item) => s + (item.months[mi]?.erpPO || 0) * (item.unitPx || item.stdCost), 0));
+  const suggValByMonthVS = MONTHS.map((_, mi) =>
+    suppItems.reduce((s, item) => {
+      const manual = (manualPOs[item.itemId] || {})[mi];
+      const qty = manual !== undefined ? manual : (item.suggested[mi] || 0);
+      return s + qty * item.stdCost;
+    }, 0));
+
+  document.getElementById('vs-name').textContent = fSupp;
+  document.getElementById('vs-items').textContent = suppItems.length;
+  document.getElementById('vs-val').textContent = '$' + (totalVal/1000).toFixed(1) + 'k';
+  document.getElementById('vs-po-open').textContent = '$' + (totalPO$/1000).toFixed(1) + 'k';
+  document.getElementById('vs-below').textContent = belowCount;
+
+  document.getElementById('vs-months').innerHTML = MONTHS.map((m, i) => {
+    const erp$ = erpValByMonthVS[i];
+    const sugg$ = suggValByMonthVS[i];
+    const hasErp = erp$ > 0, hasSugg = sugg$ > 0;
+    const lines = [];
+    if (hasErp)  lines.push(`<div style="color:var(--accent2);font-size:11px;font-weight:700;font-family:var(--mono)">↦ $${fmtK(erp$)}</div>`);
+    if (hasSugg) lines.push(`<div style="color:var(--warn);font-size:11px;font-weight:700;font-family:var(--mono)">◈ $${fmtK(sugg$)}</div>`);
+    if (!hasErp && !hasSugg) lines.push(`<div style="color:var(--border);font-size:11px;font-family:var(--mono)">—</div>`);
+    return `<div class="vs-mo" style="min-width:64px">
+      <div class="vs-mo-label">${m}</div>
+      ${lines.join('')}
+    </div>`;
+  }).join('');
+
+  strip.classList.add('visible');
+}
+
+// ─────────────────────────────────────────────
+// PO ANALYSIS VIEW
+// ─────────────────────────────────────────────
+function buildPOMonthFilter() {
+  const sel = document.getElementById('po-month-filter');
+  sel.innerHTML = '<option value="">All Months</option>' +
+    MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+}
+
+function renderPOView() {
+  if (!items.length) return;
+
+  const search = (document.getElementById('po-search').value || '').toLowerCase();
+  const onlyActive = document.getElementById('po-only-active').checked;
+  const sortBy = document.getElementById('po-sort').value;
+
+  // Group items by supplier
+  const suppMap = {};
+  for (const item of items) {
+    if (!item.suppName) continue;
+    if (!suppMap[item.suppName]) suppMap[item.suppName] = [];
+    suppMap[item.suppName].push(item);
+  }
+
+  // Build supplier summaries
+  let suppliers = Object.entries(suppMap).map(([name, sitems]) => {
+    const invVal = sitems.reduce((s, i) => s + i.value, 0);
+    const openPO$ = sitems.reduce((s, i) => s + i.openPO$, 0);
+    const belowCount = sitems.filter(i => i.status === 'BELOW').length;
+
+    // PO per month: ERP + manual/suggested
+    const erpByMonth = MONTHS.map((_, mi) =>
+      sitems.reduce((s, item) => s + (item.months[mi]?.erpPO || 0), 0));
+    const manualByMonth = MONTHS.map((_, mi) =>
+      sitems.reduce((s, item) => {
+        const manual = (manualPOs[item.itemId] || {})[mi];
+        return s + (manual !== undefined ? manual : (item.suggested[mi] || 0));
+      }, 0));
+    const totalByMonth = MONTHS.map((_, mi) => erpByMonth[mi] + manualByMonth[mi]);
+
+    // $ value of ERP POs per month (qty × unit price or std cost)
+    const erpValByMonth = MONTHS.map((_, mi) =>
+      sitems.reduce((s, item) => s + (item.months[mi]?.erpPO || 0) * (item.unitPx || item.stdCost), 0));
+
+    // $ value of POs to place (manual/suggested)
+    const manualValByMonth = MONTHS.map((_, mi) =>
+      sitems.reduce((s, item) => {
+        const manual = (manualPOs[item.itemId] || {})[mi];
+        const qty = manual !== undefined ? manual : (item.suggested[mi] || 0);
+        return s + qty * item.stdCost;
+      }, 0));
+
+    const totalPOToPlace = manualByMonth.reduce((s, v) => s + v, 0);
+
+    return { name, sitems, invVal, openPO$, belowCount, erpByMonth, manualByMonth, totalByMonth, erpValByMonth, manualValByMonth, totalPOToPlace };
+  });
+
+  if (search) suppliers = suppliers.filter(s => s.name.toLowerCase().includes(search));
+  if (onlyActive) suppliers = suppliers.filter(s => s.totalPOToPlace > 0 || s.openPO$ > 0);
+
+  // Sort
+  if (sortBy === 'name') suppliers.sort((a, b) => a.name.localeCompare(b.name));
+  else if (sortBy === 'items') suppliers.sort((a, b) => b.sitems.length - a.sitems.length);
+  else if (sortBy === 'val') suppliers.sort((a, b) => b.invVal - a.invVal);
+  else if (sortBy === 'po') suppliers.sort((a, b) => b.totalPOToPlace - a.totalPOToPlace);
+
+  document.getElementById('po-result-count').textContent = `${suppliers.length} suppliers`;
+
+  // Grand totals for summary cards
+  const grandInv = suppliers.reduce((s, v) => s + v.invVal, 0);
+  const grandOpenPO = suppliers.reduce((s, v) => s + v.openPO$, 0);
+  const grandToPlace = suppliers.reduce((s, v) => s + v.manualValByMonth.reduce((a,b)=>a+b,0), 0);
+  const grandBelow = suppliers.reduce((s, v) => s + v.belowCount, 0);
+
+  document.getElementById('po-summary').innerHTML = `
+    <div class="po-sum-card"><div class="po-sum-v" style="color:var(--accent2)">$${(grandInv/1000).toFixed(0)}k</div><div class="po-sum-l">Total Inventory</div></div>
+    <div class="po-sum-card"><div class="po-sum-v" style="color:var(--ok)">$${(grandOpenPO/1000).toFixed(0)}k</div><div class="po-sum-l">Open POs (ERP)</div></div>
+    <div class="po-sum-card"><div class="po-sum-v" style="color:var(--warn)">$${(grandToPlace/1000).toFixed(0)}k</div><div class="po-sum-l">Suggested POs to Place</div></div>
+    <div class="po-sum-card"><div class="po-sum-v" style="color:var(--danger)">${grandBelow}</div><div class="po-sum-l">Items Below SS</div></div>
+    <div class="po-sum-card"><div class="po-sum-v">${suppliers.length}</div><div class="po-sum-l">Active Suppliers</div></div>
+  `;
+
+  // Render supplier cards
+  const maxErpVal = Math.max(...suppliers.map(s => Math.max(...s.erpValByMonth)), 1);
+  const maxManVal = Math.max(...suppliers.map(s => Math.max(...s.manualValByMonth)), 1);
+
+  document.getElementById('pov-grid').innerHTML = suppliers.map((s, si) => {
+    const statusBadge = s.belowCount > 0
+      ? `<span class="badge b-danger">${s.belowCount} BELOW</span>`
+      : `<span class="badge b-ok">OK</span>`;
+
+    // Month totals row — show $ amounts in blue (ERP) and yellow (suggested)
+    const monthTotalsRow = `<tr class="totals-row">
+      <td colspan="2" style="color:var(--muted);font-size:10px">$ POs / MES</td>
+      ${MONTHS.map((_, mi) => {
+        const ev$ = s.erpValByMonth[mi];
+        const mv$ = s.manualValByMonth[mi];
+        const total$ = ev$ + mv$;
+        const pct = total$ / (maxErpVal + maxManVal);
+        const heatCls = total$ === 0 ? 'heat-0' : pct < 0.25 ? 'heat-low' : pct < 0.6 ? 'heat-mid' : 'heat-high';
+        return `<td class="mo-td">
+          <div class="po-cell">
+            ${ev$ > 0 ? `<div class="po-erp">↦ $${fmtK(ev$)}</div>` : ''}
+            ${mv$ > 0 ? `<div class="po-manual">◈ $${fmtK(mv$)}</div>` : ''}
+            ${total$ > 0 ? `<div class="po-total ${heatCls}">$${fmtK(total$)}</div>` : '<div class="heat-0">—</div>'}
+          </div>
+        </td>`;
+      }).join('')}
+    </tr>`;
+
+    // Item rows (only items with any PO activity or BELOW status)
+    const itemRows = s.sitems
+      .filter(item => item.status === 'BELOW' || item.months.some(m => m.erpPO > 0 || m.manualPO > 0) || item.suggested.some(v => v > 0))
+      .sort((a, b) => {
+        const aBelow = a.status === 'BELOW' ? 0 : 1;
+        const bBelow = b.status === 'BELOW' ? 0 : 1;
+        return aBelow - bBelow;
+      })
+      .slice(0, 30) // cap at 30 items per supplier
+      .map(item => {
+        const rowStatus = { 'BELOW': 'b-danger', 'OK': 'b-ok', 'OVERSTOCK': 'b-over', 'no-usage': 'b-muted' }[item.status];
+        return `<tr>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--muted)">${esc(item.itemId)}</td>
+          <td style="max-width:180px;white-space:normal;font-size:11px">${esc(item.desc)} <span class="badge ${rowStatus}" style="margin-left:4px">${item.status}</span></td>
+          ${item.months.map((m, mi) => {
+            const manual = (manualPOs[item.itemId] || {})[mi];
+            const sugg = item.suggested[mi] || 0;
+            const displayQty = manual !== undefined ? manual : (sugg > 0 ? sugg : 0);
+            const erpVal$ = m.erpPO * (item.unitPx || item.stdCost);
+            const manVal$ = displayQty * item.stdCost;
+            const isManual = manual !== undefined;
+            return `<td class="mo-td">
+              <div class="po-cell">
+                ${m.erpPO > 0 ? `<div class="po-erp" title="${Math.round(m.erpPO)} u">↦ $${fmtK(erpVal$)}</div>` : ''}
+                ${displayQty > 0
+                  ? `<div class="po-manual" style="color:${isManual ? 'var(--accent2)' : 'var(--warn)'}" title="${Math.round(displayQty)} u">${isManual ? '✎' : '◈'} $${fmtK(manVal$)}</div>`
+                  : (m.erpPO === 0 ? '<div style="color:var(--border);font-size:10px">—</div>' : '')}
+              </div>
+            </td>`;
+          }).join('')}
+        </tr>`;
+      }).join('');
+
+    return `<div class="supp-card">
+      <div class="supp-card-hdr" onclick="toggleCard(${si})">
+        <div class="supp-card-name">${esc(s.name)}</div>
+        <div class="supp-card-meta">
+          ${statusBadge}
+          <div class="supp-meta-kv">
+            <div class="supp-meta-v">${s.sitems.length}</div>
+            <div class="supp-meta-l">items</div>
+          </div>
+          <div class="supp-meta-kv">
+            <div class="supp-meta-v" style="color:var(--accent2)">$${(s.invVal/1000).toFixed(1)}k</div>
+            <div class="supp-meta-l">inv $</div>
+          </div>
+          <div class="supp-meta-kv">
+            <div class="supp-meta-v" style="color:var(--ok)">$${(s.openPO$/1000).toFixed(1)}k</div>
+            <div class="supp-meta-l">open PO $</div>
+          </div>
+          <div class="supp-meta-kv">
+            <div class="supp-meta-v" style="color:${s.totalPOToPlace > 0 ? 'var(--warn)' : 'var(--muted)'}">
+              ${s.totalPOToPlace > 0 ? Math.round(s.totalPOToPlace) + ' u' : '—'}
+            </div>
+            <div class="supp-meta-l">to order</div>
+          </div>
+          <div style="color:var(--muted);font-size:16px;margin-left:4px" id="card-arrow-${si}">▼</div>
+        </div>
+      </div>
+      <div class="supp-card-body" id="card-body-${si}">
+        <table class="po-table">
+          <thead>
+            <tr>
+              <th>Item ID</th>
+              <th>Description</th>
+              ${MONTHS.map(m => `<th class="mo-th">${m}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows || `<tr><td colspan="${2 + MONTHS.length}" style="color:var(--muted);font-size:11px;padding:12px">No items with active or pending POs</td></tr>`}
+            ${monthTotalsRow}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleCard(si) {
+  const body = document.getElementById(`card-body-${si}`);
+  const arrow = document.getElementById(`card-arrow-${si}`);
+  body.classList.toggle('collapsed');
+  arrow.textContent = body.classList.contains('collapsed') ? '▶' : '▼';
+}
+
+// ─────────────────────────────────────────────
+// LEAD TIMES VIEW
+// ─────────────────────────────────────────────
+function renderLTView() {
+  if (!items.length) return;
+  const activeItems = items.filter(i => i.status !== 'no-usage');
+  const suppliers = [...new Set(activeItems.map(i => i.suppName).filter(Boolean))].sort();
+
+  // Summary stats
+  const configured  = suppliers.filter(s => ltSupplier[s] !== undefined).length;
+  const pending     = suppliers.length - configured;
+  const itemsCovered = activeItems.filter(i => getLT(i) !== null).length;
+  const itemsOverride = activeItems.filter(i => ltItem[i.itemId] !== undefined).length;
+  document.getElementById('lt-configured').textContent  = configured;
+  document.getElementById('lt-pending').textContent     = pending;
+  document.getElementById('lt-items-covered').textContent = itemsCovered;
+  document.getElementById('lt-items-override').textContent = itemsOverride;
+
+  // Supplier list
+  document.getElementById('lt-supplier-list').innerHTML = suppliers.map(supp => {
+    const suppItems = activeItems.filter(i => i.suppName === supp);
+    const lt = ltSupplier[supp];
+    const hasLT = lt !== undefined;
+    const overrideCount = suppItems.filter(i => ltItem[i.itemId] !== undefined).length;
+    const avgSS = suppItems.length > 0
+      ? (suppItems.reduce((s,i) => s + i.ltMult, 0) / suppItems.length).toFixed(1)
+      : '—';
+    const isSelected = ltSelectedSupplier === supp;
+    return `<div onclick="selectLTSupplier('${esc(supp)}')"
+      style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
+             background:${isSelected ? 'rgba(79,142,247,.08)' : 'transparent'};
+             border-left:3px solid ${isSelected ? 'var(--accent2)' : 'transparent'};
+             display:grid;grid-template-columns:1fr 90px 90px 60px;gap:8px;align-items:center">
+      <div>
+        <div style="font-size:12px;font-weight:600">${esc(supp)}</div>
+        ${overrideCount > 0 ? `<div style="font-size:10px;color:var(--muted)">${overrideCount} item override${overrideCount>1?'s':''}</div>` : ''}
+      </div>
+      <div style="text-align:center">
+        <input type="number" min="0.5" max="24" step="0.5"
+          value="${hasLT ? lt : ''}"
+          placeholder="3× fallback"
+          title="Lead time in months for ${esc(supp)}"
+          onclick="event.stopPropagation()"
+          onchange="setSupplierLT('${esc(supp)}', this.value)"
+          style="width:76px;text-align:center;padding:4px 6px;border-radius:5px;
+                 border:1px solid ${hasLT ? 'var(--accent2)' : 'var(--border)'};
+                 background:${hasLT ? 'rgba(79,142,247,.06)' : 'var(--bg)'};
+                 color:${hasLT ? 'var(--accent2)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">months</div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--muted)">${suppItems.length} items</div>
+      <div style="text-align:center;font-family:var(--mono);font-size:12px;
+                  color:${hasLT ? 'var(--ok)' : 'var(--warn)'};font-weight:600">${avgSS}×</div>
+    </div>`;
+  }).join('');
+
+  // Render item panel if supplier selected
+  if (ltSelectedSupplier) renderLTItemPanel(ltSelectedSupplier);
+}
+
+function selectLTSupplier(supp) {
+  ltSelectedSupplier = supp;
+  renderLTView();
+}
+
+function setSupplierLT(supp, val) {
+  const v = parseFloat(val);
+  if (!isNaN(v) && v > 0) ltSupplier[supp] = v;
+  else delete ltSupplier[supp];
+  saveLT();
+  recalcAll();
+  renderLTView();
+}
+
+function setItemLT(itemId, val) {
+  const v = parseFloat(val);
+  if (!isNaN(v) && v > 0) ltItem[itemId] = v;
+  else delete ltItem[itemId];
+  saveLT();
+  recalcAll();
+  if (ltSelectedSupplier) renderLTItemPanel(ltSelectedSupplier);
+  renderLTView();
+}
+
+function renderLTItemPanel(supp) {
+  const activeItems = items.filter(i => i.status !== 'no-usage' && i.suppName === supp);
+  const suppLT = ltSupplier[supp];
+
+  document.getElementById('lt-item-panel').innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">${esc(supp)}</div>
+      <div style="font-size:11px;color:var(--muted)">
+        Lead time supplier: <strong style="color:${suppLT !== undefined ? 'var(--accent2)' : 'var(--warn)'}">
+          ${suppLT !== undefined ? suppLT + ' months' : 'Not configured — using fallback 3×'}
+        </strong>
+        &nbsp;·&nbsp; Item overrides take priority over this value.
+      </div>
+    </div>
+    <table style="border-collapse:collapse;width:100%;font-size:12px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border)">
+          <th style="padding:6px 10px;text-align:left;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">Item ID</th>
+          <th style="padding:6px 10px;text-align:left;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">Description</th>
+          <th style="padding:6px 10px;text-align:center;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">MAU</th>
+          <th style="padding:6px 10px;text-align:center;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">LT Override</th>
+          <th style="padding:6px 10px;text-align:center;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">LT Efectivo</th>
+          <th style="padding:6px 10px;text-align:center;font-family:var(--mono);font-size:9px;color:var(--muted);font-weight:600;text-transform:uppercase">SS Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${activeItems.map(item => {
+          const override = ltItem[item.itemId];
+          const effective = getLT(item) ?? 3;
+          const source = item.ltSource;
+          const srcLabel = source === 'item' ? `<span style="color:var(--accent2);font-weight:700">Override item</span>`
+                         : source === 'supplier' ? `<span style="color:var(--ok)">Supplier default</span>`
+                         : `<span style="color:var(--warn)">Fallback 3×</span>`;
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(item.itemId)}</td>
+            <td style="padding:7px 10px;max-width:200px;white-space:normal">${esc(item.desc)}</td>
+            <td style="padding:7px 10px;text-align:center;font-family:var(--mono)">${item.mau.toFixed(2)}</td>
+            <td style="padding:7px 10px;text-align:center">
+              <input type="number" min="0.5" max="24" step="0.5"
+                value="${override !== undefined ? override : ''}"
+                placeholder="${suppLT !== undefined ? suppLT : '3×'}"
+                onchange="setItemLT('${esc(item.itemId)}', this.value)"
+                style="width:70px;text-align:center;padding:3px 6px;border-radius:5px;
+                       border:1px solid ${override !== undefined ? 'var(--accent2)' : 'var(--border)'};
+                       background:${override !== undefined ? 'rgba(79,142,247,.06)' : 'var(--bg)'};
+                       color:${override !== undefined ? 'var(--accent2)' : 'var(--muted)'};
+                       font-family:var(--mono);font-size:12px">
+            </td>
+            <td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-weight:700;color:var(--text)">${effective} m</td>
+            <td style="padding:7px 10px;text-align:center;font-size:11px">${srcLabel}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function exportLTCSV() {
+  const activeItems = items.filter(i => i.status !== 'no-usage');
+  const rows = [['Item ID','Description','Supplier','MAU','LT Supplier (months)','LT Item Override (months)','LT Effective (months)','Source','SS Mult Current']];
+  activeItems.forEach(i => {
+    const suppLT   = ltSupplier[i.suppName] !== undefined ? ltSupplier[i.suppName] : '';
+    const itemOvr  = ltItem[i.itemId]       !== undefined ? ltItem[i.itemId]       : '';
+    const effective = getLT(i) ?? 3;
+    rows.push([i.itemId, i.desc, i.suppName, i.mau.toFixed(2), suppLT, itemOvr, effective, i.ltSource, i.ltMult]);
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'lead_times.csv';
+  a.click();
+}
+
+function clearAllLT() {
+  if (!confirm('Clear all configured lead times? All items will revert to fallback 3×.')) return;
+  ltSupplier = {}; ltItem = {};
+  saveLT();
+  recalcAll();
+  renderLTView();
+}
+// ─────────────────────────────────────────────
+// ITEM STATUS VIEW
+// ─────────────────────────────────────────────
+const IS_LABELS = {
+  active:             { label: 'Active',             color: 'var(--ok)'     },
+  to_be_discontinued: { label: 'To Be Discontinued', color: 'var(--warn)'   },
+  discontinued:       { label: 'Discontinued',        color: 'var(--danger)' },
+  custom:             { label: 'Custom',              color: 'var(--accent2)'},
+};
+
+function buildISSupplierFilter() {
+  const suppliers = [...new Set(rawItems.map(i => i.suppName).filter(Boolean))].sort();
+  ['is-supplier','is-bulk-supplier'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const first = id === 'is-bulk-supplier' ? '<option value="">— select —</option>' : '<option value="">All Suppliers</option>';
+    sel.innerHTML = first + suppliers.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  });
+}
+
+function renderISView() {
+  if (!rawItems.length) return;
+  const search    = (document.getElementById('is-search').value || '').toLowerCase();
+  const fSupp     = document.getElementById('is-supplier').value;
+  const fISStatus = document.getElementById('is-filter-status').value;
+
+  let list = rawItems.filter(i => {
+    if (fSupp && i.suppName !== fSupp) return false;
+    if (fISStatus && getIS(i.itemId) !== fISStatus) return false;
+    if (search) {
+      const hay = `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+  list.sort((a, b) => a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId));
+
+  document.getElementById('is-cnt-active').textContent  = rawItems.filter(i => getIS(i.itemId) === 'active').length;
+  document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
+  document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
+  document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
+  document.getElementById('is-count').textContent       = `${list.length} items`;
+
+  document.getElementById('is-body').innerHTML = list.map(item => {
+    const is = getIS(item.itemId);
+    const rowBg = is === 'discontinued' ? 'background:rgba(248,113,113,.03)'
+                : is === 'to_be_discontinued' ? 'background:rgba(251,191,36,.03)' : '';
+    return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(item.itemId)}</td>
+      <td style="padding:7px 10px;font-size:12px;max-width:240px">${esc(item.desc)}</td>
+      <td style="padding:7px 10px;font-size:11px;color:var(--muted)">${esc(item.suppName)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${item.onHand > 0 ? fmt(item.onHand) : '—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${item.mau > 0 ? item.mau.toFixed(2) : '—'}</td>
+      <td style="padding:7px 10px;text-align:center">
+        <select class="is-status-select ${is}" onchange="setISAndRefresh('${esc(item.itemId)}', this.value, this)">
+          <option value="active"             ${is==='active'?'selected':''}>Active</option>
+          <option value="to_be_discontinued" ${is==='to_be_discontinued'?'selected':''}>To Be Discontinued</option>
+          <option value="discontinued"       ${is==='discontinued'?'selected':''}>Discontinued</option>
+          <option value="custom"             ${is==='custom'?'selected':''}>Custom</option>
+        </select>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function setISAndRefresh(itemId, status, selectEl) {
+  setIS(itemId, status);
+  selectEl.className = `is-status-select ${status}`;
+  document.getElementById('is-cnt-active').textContent  = rawItems.filter(i => getIS(i.itemId) === 'active').length;
+  document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
+  document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
+  document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
+  applyFilters();
+}
+
+function bulkSetStatus() {
+  const supp   = document.getElementById('is-bulk-supplier').value;
+  const status = document.getElementById('is-bulk-status').value;
+  if (!supp) { alert('Select a supplier first'); return; }
+  const count = rawItems.filter(i => i.suppName === supp).length;
+  if (!confirm(`Change ${count} items from "${supp}" to "${IS_LABELS[status].label}"?`)) return;
+  rawItems.filter(i => i.suppName === supp).forEach(i => setIS(i.itemId, status));
+  renderISView();
+  applyFilters();
+}
+
+function exportISCSV() {
+  const rows = [['Item ID','Description','Supplier','On Hand','MAU','Item Status']];
+  rawItems.forEach(i => rows.push([i.itemId, i.desc, i.suppName, i.onHand, i.mau.toFixed(2), IS_LABELS[getIS(i.itemId)].label]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'item_status.csv';
+  a.click();
+}
+
+function fmt(n) { return Math.round(n||0).toLocaleString(); }
+function fmtK(n) {
+  n = n || 0;
+  if (n >= 10000) return (n/1000).toFixed(1) + 'k';
+  if (n >= 1000)  return (n/1000).toFixed(1) + 'k';
+  return n.toFixed(0);
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
