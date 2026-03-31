@@ -560,6 +560,8 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         </select>
         <button class="btn btn-sm" onclick="bulkSetStatus()">Apply</button>
         <button class="btn btn-sm" onclick="exportISCSV()" style="margin-left:8px">⬇ Export CSV</button>
+        <button class="btn btn-sm btn-accent" onclick="document.getElementById('is-import').click()" style="margin-left:4px">⬆ Import CSV</button>
+        <input type="file" id="is-import" accept=".csv" style="display:none" onchange="importISCSV(event)">
       </div>
     </div>
     <!-- summary pills -->
@@ -1953,6 +1955,54 @@ function exportISCSV() {
   a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
   a.download = 'item_status.csv';
   a.click();
+}
+
+function importISCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) { alert('Empty CSV'); return; }
+
+    // Map label → internal key
+    const labelToKey = {
+      'active': 'active',
+      'to be discontinued': 'to_be_discontinued',
+      'discontinued': 'discontinued',
+      'custom': 'custom'
+    };
+
+    let imported = 0, skipped = 0;
+    for (let i = 1; i < lines.length; i++) {
+      // Parse CSV line (handles quoted fields)
+      const parts = [];
+      let inQuote = false, field = '';
+      for (const ch of lines[i]) {
+        if (ch === '"') { inQuote = !inQuote; }
+        else if (ch === ',' && !inQuote) { parts.push(field.trim()); field = ''; }
+        else { field += ch; }
+      }
+      parts.push(field.trim());
+
+      // Expect: Item ID (0), Description (1), Supplier (2), On Hand (3), MAU (4), Item Status (5)
+      if (parts.length < 6) continue;
+      const itemId = parts[0];
+      const statusLabel = parts[5].toLowerCase();
+      const key = labelToKey[statusLabel];
+      if (!itemId || !key) { skipped++; continue; }
+      if (key === 'active') { delete itemStatus[itemId]; }
+      else { itemStatus[itemId] = key; }
+      imported++;
+    }
+
+    saveIS();
+    alert(`Imported ${imported} item statuses (${skipped} skipped — invalid status or format)`);
+    if (rawItems.length) { renderISView(); applyFilters(); }
+    event.target.value = ''; // reset file input
+  };
+  reader.readAsText(file);
 }
 
 function fmt(n) { return Math.round(n||0).toLocaleString(); }
