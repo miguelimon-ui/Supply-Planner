@@ -164,6 +164,7 @@ td{padding:6px 10px;vertical-align:middle;white-space:nowrap}
 .is-status-select{font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);cursor:pointer;width:170px}
 .is-status-select.active{border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.06);color:var(--ok)}
 .is-status-select.to_be_discontinued{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.06);color:var(--warn)}
+.is-status-select.eol{border-color:rgba(232,121,249,.4);background:rgba(232,121,249,.06);color:#e879f9}
 .is-status-select.discontinued{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.06);color:var(--danger)}
 .is-status-select.custom{border-color:rgba(79,142,247,.4);background:rgba(79,142,247,.06);color:var(--accent2)}
 /* Item status filter pills */
@@ -171,6 +172,7 @@ td{padding:6px 10px;vertical-align:middle;white-space:nowrap}
 .is-pill:hover{opacity:.85}
 .is-pill.selected.active-pill{background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.5);color:var(--ok)}
 .is-pill.selected.tbd-pill{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--warn)}
+.is-pill.selected.eol-pill{background:rgba(232,121,249,.12);border-color:rgba(232,121,249,.5);color:#e879f9}
 .is-pill.selected.disc-pill{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.5);color:var(--danger)}
 .is-pill.selected.custom-pill{background:rgba(79,142,247,.12);border-color:rgba(79,142,247,.5);color:var(--accent2)}
 /* Row left-border by item lifecycle status */
@@ -361,6 +363,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-po" onclick="switchTab('po')"><span class="tab-icon">📊</span> PO Analysis by Supplier</div>
     <div class="tab" id="tab-lt" onclick="switchTab('lt')"><span class="tab-icon">⏱</span> Lead Times</div>
     <div class="tab" id="tab-is" onclick="switchTab('is')"><span class="tab-icon">🏷</span> Item Status</div>
+    <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
   </div>
 
   <!-- PLAN VIEW -->
@@ -435,6 +438,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <span style="font-size:10px;color:var(--muted);margin-right:2px">Items:</span>
       <button class="is-pill active-pill selected"    onclick="toggleISPill('active',this)"            data-is="active">Active</button>
       <button class="is-pill tbd-pill selected"       onclick="toggleISPill('to_be_discontinued',this)" data-is="to_be_discontinued">To Be Disc.</button>
+      <button class="is-pill eol-pill selected"        onclick="toggleISPill('eol',this)"                data-is="eol">EOL</button>
       <button class="is-pill disc-pill"               onclick="toggleISPill('discontinued',this)"       data-is="discontinued">Discontinued</button>
       <button class="is-pill custom-pill"             onclick="toggleISPill('custom',this)"             data-is="custom">Custom</button>
     </div>
@@ -543,6 +547,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="">All Statuses</option>
         <option value="active">Active</option>
         <option value="to_be_discontinued">To Be Discontinued</option>
+        <option value="eol">EOL</option>
         <option value="discontinued">Discontinued</option>
         <option value="custom">Custom</option>
       </select>
@@ -555,6 +560,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <select id="is-bulk-status" style="font-size:11px">
           <option value="active">Active</option>
           <option value="to_be_discontinued">To Be Discontinued</option>
+          <option value="eol">EOL</option>
           <option value="discontinued">Discontinued</option>
           <option value="custom">Custom</option>
         </select>
@@ -568,6 +574,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
       <div class="stat"><div class="stat-v" id="is-cnt-active" style="color:var(--ok)">—</div><div class="stat-l">Active</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-tbd" style="color:var(--warn)">—</div><div class="stat-l">To Be Discontinued</div></div>
+      <div class="stat"><div class="stat-v" id="is-cnt-eol" style="color:#e879f9">—</div><div class="stat-l">EOL</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-disc" style="color:var(--danger)">—</div><div class="stat-l">Discontinued</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-custom" style="color:var(--accent2)">—</div><div class="stat-l">Custom</div></div>
     </div>
@@ -581,10 +588,42 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
             <th class="is-th" style="text-align:right">On Hand</th>
             <th class="is-th" style="text-align:right">MAU</th>
             <th class="is-th" style="text-align:center;width:180px">Status</th>
+            <th class="is-th" style="text-align:center;width:130px">Target Date</th>
           </tr>
         </thead>
         <tbody id="is-body"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- EOL VIEW -->
+  <div id="eol-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <!-- toolbar -->
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:13px;color:var(--text)">EOL Management</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sm" onclick="document.getElementById('eol-disc-upload').click()">Upload Discontinuation Tracker</button>
+        <input type="file" id="eol-disc-upload" accept=".xlsx,.xls" style="display:none" onchange="loadDiscTracker(event)">
+        <button class="btn btn-sm" onclick="document.getElementById('eol-bom-upload').click()">Upload BOM (ISS Report)</button>
+        <input type="file" id="eol-bom-upload" accept=".xlsx,.xls" style="display:none" onchange="loadBOM(event)">
+        <button class="btn btn-sm btn-accent" onclick="exportISSReport()">Export ISS Dashboard</button>
+      </div>
+    </div>
+    <!-- summary -->
+    <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div class="stat"><div class="stat-v" id="eol-cnt-items" style="color:#e879f9">—</div><div class="stat-l">EOL Items</div></div>
+      <div class="stat"><div class="stat-v" id="eol-cnt-tbd" style="color:var(--warn)">—</div><div class="stat-l">To Be Disc.</div></div>
+      <div class="stat"><div class="stat-v" id="eol-cnt-boms" style="color:var(--accent)">—</div><div class="stat-l">BOMs Loaded</div></div>
+      <div class="stat"><div class="stat-v" id="eol-cnt-fgs" style="color:var(--ok)">—</div><div class="stat-l">FGs Available</div></div>
+      <div class="stat"><div class="stat-v" id="eol-cnt-disc" style="color:var(--muted)">—</div><div class="stat-l">Disc. Tracker Items</div></div>
+    </div>
+    <!-- content -->
+    <div style="flex:1;overflow:auto;padding:16px 20px" id="eol-content">
+      <div style="text-align:center;color:var(--muted);padding:60px 0">
+        <div style="font-size:40px;margin-bottom:12px">🔚</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">No EOL data yet</div>
+        <div style="font-size:12px">Mark items as EOL or "To Be Discontinued" in the Item Status tab,<br>then upload a Discontinuation Tracker or BOM file above.</div>
+      </div>
     </div>
   </div>
 
@@ -1441,16 +1480,18 @@ function exportCSV() {
 // TAB SWITCHING
 // ─────────────────────────────────────────────
 function switchTab(tab) {
-  ['plan','po','lt','is'].forEach(t => {
+  ['plan','po','lt','is','eol'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
   });
   document.getElementById('plan-view').style.display = tab === 'plan' ? 'flex' : 'none';
   document.getElementById('po-view').style.display   = tab === 'po'   ? 'flex' : 'none';
   document.getElementById('lt-view').style.display   = tab === 'lt'   ? 'flex' : 'none';
   document.getElementById('is-view').style.display   = tab === 'is'   ? 'flex' : 'none';
+  document.getElementById('eol-view').style.display  = tab === 'eol'  ? 'flex' : 'none';
   if (tab === 'po') renderPOView();
   if (tab === 'lt') renderLTView();
   if (tab === 'is') renderISView();
+  if (tab === 'eol') renderEOLView();
 }
 
 // ─────────────────────────────────────────────
@@ -1867,9 +1908,24 @@ function clearAllLT() {
 const IS_LABELS = {
   active:             { label: 'Active',             color: 'var(--ok)'     },
   to_be_discontinued: { label: 'To Be Discontinued', color: 'var(--warn)'   },
+  eol:                { label: 'EOL',                color: '#e879f9'       },
   discontinued:       { label: 'Discontinued',        color: 'var(--danger)' },
   custom:             { label: 'Custom',              color: 'var(--accent2)'},
 };
+
+// Target dates for EOL / To Be Discontinued items
+let targetDates = {};
+function saveTargetDates() {
+  try { localStorage.setItem('sp_target_dates', JSON.stringify(targetDates)); } catch(e) {}
+}
+function loadTargetDates() {
+  try { targetDates = JSON.parse(localStorage.getItem('sp_target_dates') || '{}'); } catch(e) { targetDates = {}; }
+}
+function setTargetDate(itemId, date) {
+  if (date) targetDates[itemId] = date; else delete targetDates[itemId];
+  saveTargetDates();
+}
+loadTargetDates();
 
 function buildISSupplierFilter() {
   const suppliers = [...new Set(rawItems.map(i => i.suppName).filter(Boolean))].sort();
@@ -1898,15 +1954,22 @@ function renderISView() {
   });
   list.sort((a, b) => a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId));
 
-  document.getElementById('is-cnt-active').textContent  = rawItems.filter(i => getIS(i.itemId) === 'active').length;
-  document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
-  document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
-  document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
-  document.getElementById('is-count').textContent       = `${list.length} items`;
+  function updateISCounts() {
+    document.getElementById('is-cnt-active').textContent  = rawItems.filter(i => getIS(i.itemId) === 'active').length;
+    document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
+    document.getElementById('is-cnt-eol').textContent     = rawItems.filter(i => getIS(i.itemId) === 'eol').length;
+    document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
+    document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
+  }
+  updateISCounts();
+  document.getElementById('is-count').textContent = `${list.length} items`;
 
   document.getElementById('is-body').innerHTML = list.map(item => {
     const is = getIS(item.itemId);
+    const showDate = (is === 'eol' || is === 'to_be_discontinued');
+    const dateVal = targetDates[item.itemId] || '';
     const rowBg = is === 'discontinued' ? 'background:rgba(248,113,113,.03)'
+                : is === 'eol' ? 'background:rgba(232,121,249,.04)'
                 : is === 'to_be_discontinued' ? 'background:rgba(251,191,36,.03)' : '';
     return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
       <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(item.itemId)}</td>
@@ -1918,9 +1981,13 @@ function renderISView() {
         <select class="is-status-select ${is}" onchange="setISAndRefresh('${esc(item.itemId)}', this.value, this)">
           <option value="active"             ${is==='active'?'selected':''}>Active</option>
           <option value="to_be_discontinued" ${is==='to_be_discontinued'?'selected':''}>To Be Discontinued</option>
+          <option value="eol"                ${is==='eol'?'selected':''}>EOL</option>
           <option value="discontinued"       ${is==='discontinued'?'selected':''}>Discontinued</option>
           <option value="custom"             ${is==='custom'?'selected':''}>Custom</option>
         </select>
+      </td>
+      <td style="padding:7px 10px;text-align:center">
+        ${showDate ? `<input type="date" value="${dateVal}" onchange="setTargetDate('${esc(item.itemId)}', this.value)" style="font-size:11px;font-family:var(--mono);background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px">` : '<span style="color:var(--muted);font-size:10px">—</span>'}
       </td>
     </tr>`;
   }).join('');
@@ -1928,11 +1995,13 @@ function renderISView() {
 
 function setISAndRefresh(itemId, status, selectEl) {
   setIS(itemId, status);
+  // Clear target date if moving away from EOL/TBD
+  if (status !== 'eol' && status !== 'to_be_discontinued') {
+    delete targetDates[itemId]; saveTargetDates();
+  }
   selectEl.className = `is-status-select ${status}`;
-  document.getElementById('is-cnt-active').textContent  = rawItems.filter(i => getIS(i.itemId) === 'active').length;
-  document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
-  document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
-  document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
+  // Re-render to show/hide date picker
+  renderISView();
   applyFilters();
 }
 
@@ -1970,6 +2039,7 @@ function importISCSV(event) {
     const labelToKey = {
       'active': 'active',
       'to be discontinued': 'to_be_discontinued',
+      'eol': 'eol',
       'discontinued': 'discontinued',
       'custom': 'custom'
     };
@@ -2003,6 +2073,413 @@ function importISCSV(event) {
     event.target.value = ''; // reset file input
   };
   reader.readAsText(file);
+}
+
+// ─────────────────────────────────────────────
+// EOL TAB
+// ─────────────────────────────────────────────
+let eolDiscTracker = [];  // parsed discontinuation tracker items
+let eolBOMs = [];         // array of { name, fgs: [{ fgCode, fgName, fgOH, components: [...], config }] }
+
+function loadDiscTracker(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+    const ws = wb.Sheets['TRACKER'];
+    if (!ws) { alert('No "TRACKER" sheet found in file'); return; }
+    const data = XLSX.utils.sheet_to_json(ws, {header:1});
+
+    // Find header row (row 4, index 3)
+    const hdrRow = data[3] || [];
+    // Parse week columns — groups of 4 starting from col 11 (L)
+    const weeks = [];
+    for (let c = 11; c < hdrRow.length; c += 4) {
+      // Week label from row 3 (index 2)
+      const wkLabel = data[2] ? String(data[2][c] || '').replace(/\r?\n/g,' ').trim() : '';
+      if (!wkLabel && !hdrRow[c]) break;
+      weeks.push({ col: c, label: wkLabel || `Wk ${weeks.length+1}` });
+    }
+
+    eolDiscTracker = [];
+    for (let r = 4; r < data.length; r++) {
+      const row = data[r];
+      if (!row || !row[0]) continue;
+      const item = {
+        itemId: String(row[0]).trim(),
+        desc: String(row[1] || '').trim(),
+        productFamily: String(row[2] || '').trim(),
+        componentFamily: String(row[3] || '').trim(),
+        supplier: String(row[4] || '').trim(),
+        shareComponent: String(row[5] || '').trim(),
+        stdCost: parseFloat(row[6]) || 0,
+        runRate: parseFloat(row[7]) || 0,
+        targetDate: row[8] || '',
+        status: String(row[9] || '').trim(),
+        weeklyData: []
+      };
+      weeks.forEach(wk => {
+        const unitsOH = parseFloat(row[wk.col]) || 0;
+        const openPO  = parseFloat(row[wk.col+1]) || 0;
+        if (unitsOH > 0 || openPO > 0) {
+          item.weeklyData.push({
+            label: wk.label, unitsOH, openPO,
+            dollarOH: (unitsOH + openPO) * item.stdCost,
+            monthsOH: item.runRate > 0 ? (unitsOH + openPO) / item.runRate : null
+          });
+        }
+      });
+      eolDiscTracker.push(item);
+    }
+    try { localStorage.setItem('sp_eol_disc', JSON.stringify(eolDiscTracker)); } catch(e) {}
+    alert(`Loaded ${eolDiscTracker.length} items from Discontinuation Tracker (${weeks.filter(w => eolDiscTracker.some(i => i.weeklyData.length)).length} weeks with data)`);
+    renderEOLView();
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function loadBOM(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+
+    // Parse BOM Master
+    const bomWs = wb.Sheets['📦 BOM Master'] || wb.Sheets['BOM Master'];
+    if (!bomWs) { alert('No "BOM Master" sheet found'); return; }
+    const bomData = XLSX.utils.sheet_to_json(bomWs, {header:1});
+
+    // Parse FG Inventory
+    const fgWs = wb.Sheets['📦 FG Inventory'] || wb.Sheets['FG Inventory'];
+    const fgOH = {};
+    if (fgWs) {
+      const fgData = XLSX.utils.sheet_to_json(fgWs, {header:1});
+      for (let r = 4; r < fgData.length; r++) {
+        const row = fgData[r];
+        if (!row || !row[1]) continue;
+        fgOH[String(row[1]).trim()] = parseFloat(row[3]) || 0;
+      }
+    }
+
+    // Parse Config for include PO setting
+    const cfgWs = wb.Sheets['⚙️ Config'] || wb.Sheets['Config'];
+    let includePO = true;
+    if (cfgWs) {
+      const cfgData = XLSX.utils.sheet_to_json(cfgWs, {header:1});
+      for (let r = 0; r < cfgData.length; r++) {
+        if (String(cfgData[r][1] || '').includes('Include Open PO')) {
+          includePO = String(cfgData[r][2] || '').toUpperCase() === 'YES';
+        }
+      }
+    }
+
+    // Get BOM name from first cell
+    const bomName = String(bomData[0] && bomData[0][0] || file.name).replace(' · BOM MASTER','').replace('EOL','').trim();
+
+    // Parse components grouped by FG
+    const fgMap = {};
+    for (let r = 4; r < bomData.length; r++) {
+      const row = bomData[r];
+      if (!row || !row[1]) continue;
+      const active = String(row[1]).trim().toUpperCase();
+      if (active !== 'Y') continue;
+      const fgCode = String(row[2]).trim();
+      const fgName = String(row[3]).trim();
+      if (!fgMap[fgCode]) {
+        fgMap[fgCode] = { fgCode, fgName, fgOH: fgOH[fgCode] || 0, components: [] };
+      }
+      const qtyOH = parseFloat(row[7]) || 0;
+      const openPO = parseFloat(row[8]) || 0;
+      const availStock = includePO ? qtyOH + openPO : qtyOH;
+      const qtyPerFG = parseFloat(row[6]) || 1;
+      fgMap[fgCode].components.push({
+        compId: String(row[4]).trim(),
+        compDesc: String(row[5]).trim(),
+        qtyPerFG,
+        qtyOH,
+        openPO,
+        availStock,
+        maxUnits: qtyPerFG > 0 ? Math.floor(availStock / qtyPerFG) : 0
+      });
+    }
+
+    const fgs = Object.values(fgMap);
+    // Calculate max buildable per FG (min of all component maxUnits)
+    fgs.forEach(fg => {
+      fg.maxBuildable = fg.components.length > 0 ? Math.min(...fg.components.map(c => c.maxUnits)) : 0;
+      fg.totalAvailable = fg.fgOH + fg.maxBuildable;
+      const bottleneck = fg.components.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min, fg.components[0]);
+      fg.bottleneck = bottleneck ? bottleneck.compId : '—';
+      fg.bottleneckQty = bottleneck ? bottleneck.qtyOH : 0;
+    });
+
+    // Check if BOM already loaded (by name), replace if so
+    const existIdx = eolBOMs.findIndex(b => b.name === bomName);
+    const bomEntry = { name: bomName, includePO, fgs };
+    if (existIdx >= 0) eolBOMs[existIdx] = bomEntry;
+    else eolBOMs.push(bomEntry);
+
+    try { localStorage.setItem('sp_eol_boms', JSON.stringify(eolBOMs)); } catch(e) {}
+    alert(`Loaded BOM "${bomName}" — ${fgs.length} finished goods, ${fgs.reduce((s,f)=>s+f.components.length,0)} component rows`);
+    renderEOLView();
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Restore from localStorage
+try { eolDiscTracker = JSON.parse(localStorage.getItem('sp_eol_disc') || '[]'); } catch(e) { eolDiscTracker = []; }
+try { eolBOMs = JSON.parse(localStorage.getItem('sp_eol_boms') || '[]'); } catch(e) { eolBOMs = []; }
+
+function renderEOLView() {
+  const container = document.getElementById('eol-content');
+
+  // Get EOL/TBD items from the main item status
+  const eolItems = rawItems.filter(i => {
+    const s = getIS(i.itemId);
+    return s === 'eol' || s === 'to_be_discontinued';
+  });
+
+  // Update summary counts
+  document.getElementById('eol-cnt-items').textContent = rawItems.filter(i => getIS(i.itemId) === 'eol').length || '—';
+  document.getElementById('eol-cnt-tbd').textContent   = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length || '—';
+  document.getElementById('eol-cnt-boms').textContent  = eolBOMs.length || '—';
+  document.getElementById('eol-cnt-fgs').textContent   = eolBOMs.reduce((s,b) => s + b.fgs.length, 0) || '—';
+  document.getElementById('eol-cnt-disc').textContent  = eolDiscTracker.length || '—';
+
+  if (!eolItems.length && !eolBOMs.length && !eolDiscTracker.length) {
+    container.innerHTML = `<div style="text-align:center;color:var(--muted);padding:60px 0">
+      <div style="font-size:40px;margin-bottom:12px">🔚</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">No EOL data yet</div>
+      <div style="font-size:12px">Mark items as EOL or "To Be Discontinued" in the Item Status tab,<br>then upload a Discontinuation Tracker or BOM file above.</div>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+
+  // ── SECTION 1: BOM VIEWS ──
+  if (eolBOMs.length) {
+    eolBOMs.forEach((bom, bi) => {
+      html += `<div style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span style="font-size:15px;font-weight:700;color:var(--text)">${esc(bom.name)}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(0,163,225,.12);color:var(--accent);font-weight:600">${bom.fgs.length} FGs</span>
+          <button class="btn btn-sm" onclick="eolBOMs.splice(${bi},1);localStorage.setItem('sp_eol_boms',JSON.stringify(eolBOMs));renderEOLView()" style="margin-left:auto;font-size:10px;color:var(--danger)">Remove</button>
+        </div>`;
+
+      // FG summary cards
+      html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px">`;
+      bom.fgs.forEach(fg => {
+        const statusColor = fg.totalAvailable <= 0 ? 'var(--danger)' : fg.maxBuildable <= 0 ? 'var(--warn)' : 'var(--ok)';
+        const statusLabel = fg.totalAvailable <= 0 ? 'OUT' : fg.maxBuildable <= 0 ? 'FG ONLY' : 'BUILDABLE';
+        html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+            <div>
+              <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent)">${esc(fg.fgCode)}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(fg.fgName)}</div>
+            </div>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;background:${statusColor};color:#fff">${statusLabel}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:8px">
+            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text)">${fmt(fg.fgOH)}</div><div style="font-size:9px;color:var(--muted)">FG On Hand</div></div>
+            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">${fmt(fg.maxBuildable)}</div><div style="font-size:9px;color:var(--muted)">Max Buildable</div></div>
+            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--ok)">${fmt(fg.totalAvailable)}</div><div style="font-size:9px;color:var(--muted)">Total Available</div></div>
+          </div>
+          <div style="font-size:10px;color:var(--muted)">Bottleneck: <span style="font-family:var(--mono);color:var(--warn)">${esc(fg.bottleneck)}</span> (${fmt(fg.bottleneckQty)} OH)</div>
+        </div>`;
+      });
+      html += '</div>';
+
+      // Component detail table per BOM
+      html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">Component Details</summary>`;
+      html += `<table class="po-table" style="margin-bottom:8px">
+        <thead><tr>
+          <th>FG</th><th>Component ID</th><th>Description</th><th style="text-align:right">Qty/FG</th>
+          <th style="text-align:right">QTY OH</th><th style="text-align:right">Open PO</th>
+          <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
+        </tr></thead><tbody>`;
+      bom.fgs.forEach(fg => {
+        fg.components.forEach((c, ci) => {
+          const isBottleneck = c.compId === fg.bottleneck;
+          html += `<tr style="${isBottleneck ? 'background:rgba(251,191,36,.06)' : ''}">
+            ${ci === 0 ? `<td rowspan="${fg.components.length}" style="font-family:var(--mono);font-size:11px;font-weight:600;vertical-align:top;border-right:1px solid var(--border)">${esc(fg.fgCode)}</td>` : ''}
+            <td style="font-family:var(--mono);font-size:11px">${esc(c.compId)}${isBottleneck ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
+            <td style="font-size:11px">${esc(c.compDesc)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${c.qtyPerFG}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmt(c.openPO)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmt(c.availStock)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.maxUnits)}</td>
+          </tr>`;
+        });
+      });
+      html += '</tbody></table></details></div>';
+    });
+  }
+
+  // ── SECTION 2: DISCONTINUATION TRACKER ──
+  if (eolDiscTracker.length) {
+    // Group by product family
+    const families = {};
+    eolDiscTracker.forEach(item => {
+      const pf = item.productFamily || 'Other';
+      if (!families[pf]) families[pf] = [];
+      families[pf].push(item);
+    });
+
+    html += `<div style="margin-bottom:24px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Discontinuation Tracker</div>`;
+
+    Object.entries(families).forEach(([pf, items]) => {
+      // Get latest week data for each item
+      const latestWk = items[0].weeklyData.length - 1;
+
+      html += `<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">${esc(pf)} (${items.length} items)</summary>`;
+      html += `<table class="po-table"><thead><tr>
+        <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th>
+        <th style="text-align:right">Std Cost</th><th style="text-align:right">Run Rate</th>
+        <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
+        <th style="text-align:right">$ OH</th><th style="text-align:right">Months OH</th>
+      </tr></thead><tbody>`;
+
+      items.forEach(item => {
+        const latest = item.weeklyData[latestWk] || {};
+        const mohColor = latest.monthsOH === null ? 'var(--muted)' : latest.monthsOH < 3 ? 'var(--ok)' : latest.monthsOH <= 8 ? 'var(--warn)' : 'var(--danger)';
+        const statusColor = item.status.includes('Decreasing') ? 'var(--warn)' : 'var(--danger)';
+        html += `<tr>
+          <td style="font-family:var(--mono);font-size:11px">${esc(item.itemId)}</td>
+          <td style="font-size:11px">${esc(item.desc)}</td>
+          <td style="font-size:10px;color:var(--muted)">${esc(item.componentFamily)}</td>
+          <td style="font-size:10px;color:var(--muted)">${esc(item.supplier)}</td>
+          <td><span style="font-size:10px;font-weight:600;color:${statusColor}">${esc(item.status)}</span></td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">$${item.stdCost.toFixed(2)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${item.runRate > 0 ? item.runRate.toFixed(1) : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmt(latest.unitsOH || 0)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmt(latest.openPO || 0)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">$${fmt(latest.dollarOH || 0)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${mohColor}">${latest.monthsOH !== null && latest.monthsOH !== undefined ? latest.monthsOH.toFixed(1) : 'N/A'}</td>
+        </tr>`;
+      });
+      html += '</tbody></table></details>';
+    });
+    html += '</div>';
+  }
+
+  // ── SECTION 3: EOL ITEMS FROM ITEM STATUS ──
+  if (eolItems.length) {
+    html += `<div style="margin-bottom:24px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Items Marked EOL / To Be Discontinued (from Item Status)</div>`;
+    html += `<table class="po-table"><thead><tr>
+      <th>Item ID</th><th>Description</th><th>Supplier</th><th>Status</th><th>Target Date</th>
+      <th style="text-align:right">On Hand</th><th style="text-align:right">MAU</th>
+      <th style="text-align:right">Months OH</th>
+    </tr></thead><tbody>`;
+    eolItems.sort((a,b) => {
+      const sa = getIS(a.itemId) === 'eol' ? 0 : 1;
+      const sb = getIS(b.itemId) === 'eol' ? 0 : 1;
+      return sa - sb || a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId);
+    });
+    eolItems.forEach(item => {
+      const is = getIS(item.itemId);
+      const lbl = IS_LABELS[is];
+      const dateVal = targetDates[item.itemId] || '';
+      const mohVal = item.mau > 0 ? (item.onHand / item.mau) : null;
+      const mohColor = mohVal === null ? 'var(--muted)' : mohVal < 3 ? 'var(--ok)' : mohVal <= 8 ? 'var(--warn)' : 'var(--danger)';
+      html += `<tr>
+        <td style="font-family:var(--mono);font-size:11px">${esc(item.itemId)}</td>
+        <td style="font-size:11px">${esc(item.desc)}</td>
+        <td style="font-size:10px;color:var(--muted)">${esc(item.suppName)}</td>
+        <td><span style="font-size:10px;font-weight:600;color:${lbl.color}">${lbl.label}</span></td>
+        <td style="font-family:var(--mono);font-size:11px;color:${dateVal ? 'var(--text)' : 'var(--muted)'}">${dateVal || '—'}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:11px">${item.onHand > 0 ? fmt(item.onHand) : '—'}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted)">${item.mau > 0 ? item.mau.toFixed(2) : '—'}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${mohColor}">${mohVal !== null ? mohVal.toFixed(1) : 'N/A'}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+// ── EXPORT ISS DASHBOARD ──
+function exportISSReport() {
+  if (!eolBOMs.length) { alert('No BOMs loaded. Upload a BOM (ISS Report) first.'); return; }
+
+  let reportHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Montserrat',sans-serif;background:#fff;color:#333F48;padding:40px}
+  h1{font-size:20px;font-weight:700;margin-bottom:4px}
+  .sub{font-size:12px;color:#6b7780;margin-bottom:24px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-bottom:32px}
+  .card{border:1px solid #D9D9D6;border-radius:8px;padding:16px}
+  .card-code{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#00A3E1}
+  .card-name{font-size:11px;color:#6b7780;margin:2px 0 12px}
+  .card-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center}
+  .card-num{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700}
+  .card-label{font-size:9px;color:#6b7780;text-transform:uppercase}
+  .card-bn{font-size:10px;color:#6b7780;margin-top:8px}
+  .status-ok{color:#2E7D32} .status-low{color:#F57C00} .status-out{color:#C62828}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:24px}
+  th{background:#f0f2f3;padding:6px 8px;text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #D9D9D6}
+  td{padding:5px 8px;border-bottom:1px solid #e8e8e8}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .right{text-align:right}
+  .bn{background:rgba(251,191,36,.08)}
+  @media print{body{padding:20px} .no-print{display:none}}
+</style></head><body>`;
+
+  eolBOMs.forEach(bom => {
+    reportHTML += `<h1>${esc(bom.name)} — Available to Sell</h1>
+    <div class="sub">Generated ${new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})} | Include Open PO: ${bom.includePO ? 'Yes' : 'No'}</div>
+    <div class="cards">`;
+    bom.fgs.forEach(fg => {
+      const sc = fg.totalAvailable <= 0 ? 'status-out' : fg.maxBuildable <= 0 ? 'status-low' : 'status-ok';
+      const sl = fg.totalAvailable <= 0 ? 'OUT OF STOCK' : fg.maxBuildable <= 0 ? 'FG ONLY' : 'AVAILABLE';
+      reportHTML += `<div class="card">
+        <div class="card-code">${esc(fg.fgCode)}</div>
+        <div class="card-name">${esc(fg.fgName)}</div>
+        <div class="card-grid">
+          <div><div class="card-num">${fmt(fg.fgOH)}</div><div class="card-label">FG On Hand</div></div>
+          <div><div class="card-num" style="color:#00A3E1">${fmt(fg.maxBuildable)}</div><div class="card-label">Max Buildable</div></div>
+          <div><div class="card-num ${sc}">${fmt(fg.totalAvailable)}</div><div class="card-label">Total Available</div></div>
+        </div>
+        <div class="card-bn">Bottleneck: <span class="mono">${esc(fg.bottleneck)}</span> (${fmt(fg.bottleneckQty)} OH) — <span class="${sc}">${sl}</span></div>
+      </div>`;
+    });
+    reportHTML += '</div>';
+
+    // Component table
+    reportHTML += `<table><thead><tr><th>FG</th><th>Component ID</th><th>Description</th><th class="right">Qty/FG</th><th class="right">QTY OH</th><th class="right">Open PO</th><th class="right">Avail</th><th class="right">Max Units</th></tr></thead><tbody>`;
+    bom.fgs.forEach(fg => {
+      fg.components.forEach((c, ci) => {
+        const isBn = c.compId === fg.bottleneck;
+        reportHTML += `<tr class="${isBn?'bn':''}">
+          ${ci === 0 ? `<td rowspan="${fg.components.length}" class="mono" style="font-weight:600;vertical-align:top;border-right:1px solid #D9D9D6">${esc(fg.fgCode)}</td>` : ''}
+          <td class="mono">${esc(c.compId)}${isBn?' <span style="color:#F57C00;font-size:9px">★</span>':''}</td>
+          <td>${esc(c.compDesc)}</td>
+          <td class="right mono">${c.qtyPerFG}</td>
+          <td class="right mono">${fmt(c.qtyOH)}</td>
+          <td class="right mono">${fmt(c.openPO)}</td>
+          <td class="right mono">${fmt(c.availStock)}</td>
+          <td class="right mono" style="font-weight:600">${fmt(c.maxUnits)}</td>
+        </tr>`;
+      });
+    });
+    reportHTML += '</tbody></table>';
+  });
+
+  reportHTML += `<div class="no-print" style="text-align:center;margin-top:24px"><button onclick="window.print()" style="padding:8px 24px;border:1px solid #D9D9D6;border-radius:6px;background:#fff;cursor:pointer;font-family:inherit">Print / Save PDF</button></div></body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(reportHTML);
+  w.document.close();
 }
 
 function fmt(n) { return Math.round(n||0).toLocaleString(); }
