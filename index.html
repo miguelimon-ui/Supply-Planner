@@ -1019,8 +1019,18 @@ async function saveMRPToSupabase() {
 }
 
 async function loadMRPFromSupabase() {
-  const data = await sbFetch('sp_mrp_data?select=*&order=item_id&limit=5000');
-  if (!data || !data.length) return false;
+  // Supabase default max is 1000 rows — paginate to get all
+  let data = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const batch = await sbFetch(`sp_mrp_data?select=*&order=item_id&limit=${PAGE}&offset=${offset}`);
+    if (!batch || !batch.length) break;
+    data = data.concat(batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  if (!data.length) return false;
 
   rawItems = data.map(r => ({
     itemId: r.item_id, desc: r.description || '',
