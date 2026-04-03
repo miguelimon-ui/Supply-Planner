@@ -592,6 +592,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
             <th class="is-th">Supplier</th>
             <th class="is-th" style="text-align:right">On Hand</th>
             <th class="is-th" style="text-align:right">MAU</th>
+            <th class="is-th" style="width:120px">Family</th>
             <th class="is-th" style="text-align:center;width:180px">Status</th>
             <th class="is-th" style="text-align:center;width:130px">Target Date</th>
           </tr>
@@ -673,6 +674,9 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="eol">EOL only</option>
         <option value="to_be_discontinued">To Be Discontinued only</option>
       </select>
+      <div id="eol-family-filters" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;color:var(--muted)">Families:</span>
+      </div>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
         <button class="btn btn-sm" onclick="document.getElementById('eol-disc-upload').click()">Upload Disc. Tracker</button>
         <input type="file" id="eol-disc-upload" accept=".xlsx,.xls" style="display:none" onchange="loadDiscTracker(event)">
@@ -1049,6 +1053,8 @@ async function loadMRPFromSupabase() {
   buildMonthFilter();
   buildISSupplierFilter();
   recalcAll();
+  document.getElementById('tbl-loading').style.display = 'none';
+  document.getElementById('main-table').style.display = 'table';
   return true;
 }
 
@@ -1076,6 +1082,14 @@ function saveComponentFamilies() {
   try { localStorage.setItem('sp_comp_families', JSON.stringify(componentFamilies)); } catch(e) {}
 }
 try { componentFamilies = JSON.parse(localStorage.getItem('sp_comp_families') || '{}'); } catch(e) { componentFamilies = {}; }
+
+async function syncFamilyToSupabase(itemId, family) {
+  await sbFetch('sp_item_status', {
+    method: 'POST', write: true,
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: [{ item_id: itemId, component_family: family || null, updated_at: new Date().toISOString() }]
+  });
+}
 
 async function loadItemStatusFromSupabase() {
   const data = await sbFetch('sp_item_status?select=*&limit=5000');
@@ -2206,6 +2220,11 @@ function renderISView() {
       <td style="padding:7px 10px;font-size:11px;color:var(--muted)">${esc(item.suppName)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${item.onHand > 0 ? fmt(item.onHand) : '—'}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${item.mau > 0 ? item.mau.toFixed(2) : '—'}</td>
+      <td style="padding:7px 10px">
+        <input type="text" value="${esc(componentFamilies[item.itemId] || '')}" placeholder="—"
+          onchange="componentFamilies['${esc(item.itemId)}']=this.value.trim();saveComponentFamilies();syncFamilyToSupabase('${esc(item.itemId)}',this.value.trim())"
+          style="width:100px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
+      </td>
       <td style="padding:7px 10px;text-align:center">
         <select class="is-status-select ${is}" onchange="setISAndRefresh('${esc(item.itemId)}', this.value, this)">
           <option value="active"             ${is==='active'?'selected':''}>Active</option>
@@ -2743,6 +2762,8 @@ try { eolBOMs = JSON.parse(localStorage.getItem('sp_eol_boms') || '[]'); } catch
 
 // EOL qty overrides (in-memory, saved with snapshot)
 let eolOverrides = {};  // { itemId: { qtyOH: n, openPO: n } }
+let eolExcluded = {};   // { itemId: true } — excluded from disc tracker
+let eolFamilyFilter = new Set();  // empty = all families
 
 function renderEOLView() {
   const container = document.getElementById('eol-content');
@@ -2854,12 +2875,33 @@ function renderEOLView() {
   // ── SECTION 2: DISCONTINUATION TRACKER (from MRP + Item Status) ──
   if (eolItems.length) {
     eolItems.sort((a,b) => {
+      const fa = componentFamilies[a.itemId] || 'zzz';
+      const fb = componentFamilies[b.itemId] || 'zzz';
       const sa = getIS(a.itemId) === 'eol' ? 0 : 1;
       const sb = getIS(b.itemId) === 'eol' ? 0 : 1;
-      return sa - sb || a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId);
+      return fa.localeCompare(fb) || sa - sb || a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId);
     });
 
-    const totalDollarOH = eolItems.reduce((s, item) => {
+    // Build family pills
+    const families = [...new Set(eolItems.map(i => componentFamilies[i.itemId] || '(none)'))].sort();
+    const famContainer = document.getElementById('eol-family-filters');
+    if (famContainer) {
+      famContainer.innerHTML = '<span style="font-size:10px;color:var(--muted)">Families:</span>' +
+        families.map(f => {
+          const active = eolFamilyFilter.size === 0 || eolFamilyFilter.has(f);
+          return `<button class="is-pill ${active ? 'selected active-pill' : ''}" onclick="toggleEOLFamily('${esc(f)}')" style="font-size:9px;padding:2px 7px">${esc(f)}</button>`;
+        }).join('');
+    }
+
+    // Apply family filter + exclusions
+    const visibleItems = eolItems.filter(item => {
+      if (eolExcluded[item.itemId]) return false;
+      const fam = componentFamilies[item.itemId] || '(none)';
+      if (eolFamilyFilter.size > 0 && !eolFamilyFilter.has(fam)) return false;
+      return true;
+    });
+
+    const totalDollarOH = visibleItems.reduce((s, item) => {
       const ov = eolOverrides[item.itemId];
       const oh = ov && ov.qtyOH !== undefined ? ov.qtyOH : item.onHand;
       const po = ov && ov.openPO !== undefined ? ov.openPO : item.openPO;
@@ -2869,9 +2911,10 @@ function renderEOLView() {
     html += `<div style="margin-bottom:24px">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <span style="font-size:15px;font-weight:700;color:var(--text)">Discontinuation Tracker</span>
-        <span style="font-size:11px;color:var(--muted)">${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
+        <span style="font-size:11px;color:var(--muted)">${visibleItems.length}/${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
       </div>`;
     html += `<table class="po-table"><thead><tr>
+      <th style="width:30px"><input type="checkbox" checked onchange="toggleAllEOLExclude(this.checked)" title="Include/exclude all"></th>
       <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th><th>Target Date</th>
       <th style="text-align:right">Std Cost</th><th style="text-align:right">MAU</th>
       <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
@@ -2879,6 +2922,9 @@ function renderEOLView() {
     </tr></thead><tbody>`;
 
     eolItems.forEach(item => {
+      const fam = componentFamilies[item.itemId] || '(none)';
+      if (eolFamilyFilter.size > 0 && !eolFamilyFilter.has(fam)) return;
+      const excluded = !!eolExcluded[item.itemId];
       const is = getIS(item.itemId);
       const lbl = IS_LABELS[is];
       const dateVal = targetDates[item.itemId] || '';
@@ -2888,12 +2934,12 @@ function renderEOLView() {
       const dollarOH = (qtyOH + openPO) * item.stdCost;
       const mohVal = item.mau > 0 ? (qtyOH + openPO) / item.mau : null;
       const mohColor = mohVal === null ? 'var(--muted)' : mohVal < 3 ? 'var(--ok)' : mohVal <= 8 ? 'var(--warn)' : 'var(--danger)';
-      const family = componentFamilies[item.itemId] || '';
 
-      html += `<tr>
+      html += `<tr style="${excluded ? 'opacity:.35' : ''}">
+        <td style="text-align:center"><input type="checkbox" ${excluded ? '' : 'checked'} onchange="toggleEOLExclude('${esc(item.itemId)}',!this.checked)"></td>
         <td style="font-family:var(--mono);font-size:11px">${esc(item.itemId)}</td>
         <td style="font-size:11px">${esc(item.desc)}</td>
-        <td style="font-size:10px;color:var(--muted)">${esc(family)}</td>
+        <td style="font-size:10px;color:var(--muted)">${esc(fam)}</td>
         <td style="font-size:10px;color:var(--muted)">${esc(item.suppName)}</td>
         <td><span style="font-size:10px;font-weight:600;color:${lbl.color}">${lbl.label}</span></td>
         <td style="font-family:var(--mono);font-size:11px;color:${dateVal ? 'var(--text)' : 'var(--muted)'}">${dateVal || '—'}</td>
@@ -2932,11 +2978,15 @@ async function loadTrendData() {
     return;
   }
 
-  // Filter snapshots: only show items currently marked EOL or TBD
+  // Filter snapshots: respect status filter + family filter + exclusions
   const activeEolItems = new Set(rawItems.filter(i => {
+    if (eolExcluded[i.itemId]) return false;
     const s = getIS(i.itemId);
-    if (statusFilter) return s === statusFilter;
-    return s === 'eol' || s === 'to_be_discontinued';
+    if (statusFilter) { if (s !== statusFilter) return false; }
+    else { if (s !== 'eol' && s !== 'to_be_discontinued') return false; }
+    const fam = componentFamilies[i.itemId] || '(none)';
+    if (eolFamilyFilter.size > 0 && !eolFamilyFilter.has(fam)) return false;
+    return true;
   }).map(i => i.itemId));
 
   const filtered = snapshots.filter(s => activeEolItems.has(s.item_id));
@@ -3050,37 +3100,80 @@ async function loadTrendData() {
 
   // Per-item trend (expandable)
   html += `<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">Per-Item Trend (${allItems.size} items)</summary>`;
-  html += `<table class="po-table"><thead><tr>
-    <th>Item ID</th><th>Description</th><th>Supplier</th>`;
+  html += `<div style="overflow-x:auto"><table class="po-table"><thead><tr>
+    <th>Item ID</th><th>Description</th><th>Supplier</th><th>Family</th><th style="text-align:right">Std Cost</th>`;
   dates.forEach(d => {
     const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    html += `<th style="text-align:right;min-width:60px">${label}<br><span style="font-size:8px">Units</span></th>`;
+    html += `<th style="text-align:right;min-width:90px">${label}<br><span style="font-size:8px">Units / $</span></th>`;
   });
-  html += `<th style="text-align:right">Change</th></tr></thead><tbody>`;
+  html += `<th style="text-align:right">Unit Change</th><th style="text-align:right">$ Change</th></tr></thead><tbody>`;
 
   [...allItems].sort().forEach(itemId => {
-    const firstSnap = snapshots.find(s => s.item_id === itemId);
+    const firstSnap = filtered.find(s => s.item_id === itemId);
+    if (!firstSnap) return;
+    const stdCost = +firstSnap.std_cost || 0;
+    const mrpItem = getMRPItem(itemId);
+    const desc = mrpItem ? mrpItem.desc : '';
+    const supplier = firstSnap.supplier_name || (mrpItem ? mrpItem.suppName : '');
+    const family = componentFamilies[itemId] || firstSnap.component_family || '';
+
     const vals = dates.map(d => byDate[d][itemId] ? +byDate[d][itemId].qty_on_hand : null);
+    const dollarVals = vals.map(v => v !== null ? v * stdCost : null);
     const firstVal = vals.find(v => v !== null);
     const lastVal = [...vals].reverse().find(v => v !== null);
-    const change = firstVal !== null && lastVal !== null ? lastVal - firstVal : null;
-    const changeColor = change === null ? 'var(--muted)' : change < 0 ? 'var(--ok)' : change > 0 ? 'var(--danger)' : 'var(--muted)';
+    const unitChange = firstVal !== null && lastVal !== null ? lastVal - firstVal : null;
+    const dollarChange = unitChange !== null ? unitChange * stdCost : null;
+    const changeColor = unitChange === null ? 'var(--muted)' : unitChange < 0 ? 'var(--ok)' : unitChange > 0 ? 'var(--danger)' : 'var(--muted)';
 
     html += `<tr>
       <td style="font-family:var(--mono);font-size:11px">${esc(itemId)}</td>
-      <td style="font-size:10px">${esc(firstSnap ? firstSnap.supplier_name || '' : '')}</td>
-      <td style="font-size:10px;color:var(--muted)">${esc(firstSnap ? firstSnap.component_family || '' : '')}</td>`;
+      <td style="font-size:10px">${esc(desc)}</td>
+      <td style="font-size:10px;color:var(--muted)">${esc(supplier)}</td>
+      <td style="font-size:10px;color:var(--muted)">${esc(family)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:10px">$${stdCost.toFixed(2)}</td>`;
     vals.forEach((v, vi) => {
       const prev = vi > 0 ? vals[vi - 1] : v;
       const cellColor = v === null ? '' : (prev !== null && v < prev ? 'color:var(--ok)' : prev !== null && v > prev ? 'color:var(--danger)' : '');
-      html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;${cellColor}">${v !== null ? fmt(v) : '—'}</td>`;
+      const dv = dollarVals[vi];
+      html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;${cellColor}">${v !== null ? `${fmt(v)}<br><span style="font-size:9px;color:var(--muted)">$${fmtK(dv)}</span>` : '—'}</td>`;
     });
-    html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${changeColor}">${change !== null ? (change >= 0 ? '+' : '') + fmt(change) : '—'}</td>`;
+    html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${changeColor}">${unitChange !== null ? (unitChange >= 0 ? '+' : '') + fmt(unitChange) : '—'}</td>`;
+    html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${changeColor}">${dollarChange !== null ? (dollarChange >= 0 ? '+' : '') + '$' + fmtK(dollarChange) : '—'}</td>`;
     html += '</tr>';
   });
-  html += '</tbody></table></details></div>';
+  html += '</tbody></table></div></details></div>';
 
   section.innerHTML = html;
+}
+
+function toggleEOLFamily(family) {
+  if (eolFamilyFilter.has(family)) eolFamilyFilter.delete(family);
+  else eolFamilyFilter.add(family);
+  // If all are selected, reset to empty (show all)
+  const allFams = [...new Set(rawItems.filter(i => { const s = getIS(i.itemId); return s === 'eol' || s === 'to_be_discontinued'; }).map(i => componentFamilies[i.itemId] || '(none)'))];
+  if (eolFamilyFilter.size === allFams.length) eolFamilyFilter.clear();
+  renderEOLView();
+}
+
+function toggleEOLExclude(itemId, exclude) {
+  if (exclude) eolExcluded[itemId] = true;
+  else delete eolExcluded[itemId];
+  // Don't re-render (would lose scroll), just update the row opacity and totals
+  renderEOLView();
+}
+
+function toggleAllEOLExclude(include) {
+  const statusFilter = document.getElementById('eol-status-filter').value;
+  rawItems.forEach(item => {
+    const s = getIS(item.itemId);
+    const match = statusFilter ? s === statusFilter : (s === 'eol' || s === 'to_be_discontinued');
+    if (!match) return;
+    const fam = componentFamilies[item.itemId] || '(none)';
+    if (eolFamilyFilter.size > 0 && !eolFamilyFilter.has(fam)) return;
+    if (include) delete eolExcluded[item.itemId];
+    else eolExcluded[item.itemId] = true;
+  });
+  renderEOLView();
 }
 
 function setEOLOverride(itemId, field, value, mrpValue, inputEl) {
@@ -3116,11 +3209,12 @@ async function saveEOLSnapshot() {
   if (!dateStr) return;
 
   const eolItems = rawItems.filter(i => {
+    if (eolExcluded[i.itemId]) return false;
     const s = getIS(i.itemId);
     return s === 'eol' || s === 'to_be_discontinued';
   });
 
-  if (!eolItems.length) { alert('No EOL/TBD items to snapshot'); return; }
+  if (!eolItems.length) { alert('No EOL/TBD items to snapshot (check exclusions)'); return; }
 
   const rows = eolItems.map(item => {
     const is = getIS(item.itemId);
