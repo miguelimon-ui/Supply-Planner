@@ -857,7 +857,7 @@ function loadFile(file) {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
       parseERP(raw);
-      saveMRPToSupabase().catch(err => console.warn('Failed to save MRP to cloud:', err));
+      saveMRPToSupabase().then(() => loadBOMsFromSupabase()).catch(err => console.warn('Failed to save MRP to cloud:', err));
     } catch(err) { alert('Error: ' + err.message); }
   };
   reader.readAsArrayBuffer(file);
@@ -1046,6 +1046,9 @@ async function loadMRPFromSupabase() {
 
   // Load item statuses from Supabase
   await loadItemStatusFromSupabase();
+
+  // Reload BOMs now that rawItems is populated (MRP data available for lookups)
+  await loadBOMsFromSupabase();
 
   buildSFInputs();
   buildSupplierFilter();
