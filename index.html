@@ -345,6 +345,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
 
 <!-- UPLOAD -->
 <div id="upload-screen">
+  <div id="cloud-loading" style="display:none;text-align:center;padding:40px">
+    <div style="font-size:32px;margin-bottom:12px">☁️</div>
+    <div style="font-size:14px;color:var(--muted)">Loading MRP from cloud…</div>
+  </div>
   <div class="drop-card" id="drop-zone" onclick="triggerUpload()">
     <div class="drop-icon">📦</div>
     <div class="drop-title">James Supply Planning Report</div>
@@ -363,6 +367,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-po" onclick="switchTab('po')"><span class="tab-icon">📊</span> PO Analysis by Supplier</div>
     <div class="tab" id="tab-lt" onclick="switchTab('lt')"><span class="tab-icon">⏱</span> Lead Times</div>
     <div class="tab" id="tab-is" onclick="switchTab('is')"><span class="tab-icon">🏷</span> Item Status</div>
+    <div class="tab" id="tab-bom" onclick="switchTab('bom')"><span class="tab-icon">🧱</span> BOMs</div>
     <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
   </div>
 
@@ -596,17 +601,85 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     </div>
   </div>
 
+  <!-- BOM VIEW -->
+  <div id="bom-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center">
+      <span style="font-weight:600;font-size:13px;color:var(--text)">Bill of Materials</span>
+      <span class="result-count" id="bom-count"></span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm btn-accent" onclick="showBOMCreate()">+ New BOM</button>
+      </div>
+    </div>
+    <div style="flex:1;overflow:auto;padding:16px 20px" id="bom-content">
+      <div style="text-align:center;color:var(--muted);padding:60px 0">
+        <div style="font-size:40px;margin-bottom:12px">🧱</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">No BOMs created yet</div>
+        <div style="font-size:12px">Click "+ New BOM" to define a bill of materials.<br>Components will auto-populate from the MRP data.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOM CREATE/EDIT MODAL -->
+  <div id="bom-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:700;font-size:14px" id="bom-modal-title">New BOM</span>
+        <span style="margin-left:auto;cursor:pointer;font-size:18px;color:var(--muted)" onclick="closeBOMModal()">✕</span>
+      </div>
+      <div style="padding:16px 20px;overflow:auto;flex:1">
+        <div style="display:flex;gap:12px;margin-bottom:16px;align-items:end">
+          <div style="flex:1">
+            <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Parent SKU (FG or Sub-Assembly)</label>
+            <input type="text" id="bom-parent-sku" placeholder="e.g. 60547" list="bom-sku-list" style="width:100%;margin-top:4px" oninput="autofillBOMParent(this.value)">
+            <datalist id="bom-sku-list"></datalist>
+          </div>
+          <div style="flex:2">
+            <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Name</label>
+            <input type="text" id="bom-parent-name" placeholder="e.g. SA63-7-ENC-L-STD" style="width:100%;margin-top:4px">
+          </div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">Components</div>
+        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+          <input type="text" id="bom-add-comp" placeholder="Type Item ID to add component…" list="bom-comp-list" style="width:260px">
+          <datalist id="bom-comp-list"></datalist>
+          <button class="btn btn-sm" onclick="addBOMComponent()">Add</button>
+        </div>
+        <table class="po-table" id="bom-comp-table">
+          <thead><tr>
+            <th>Component ID</th><th>Description</th><th style="text-align:right">Qty/Parent</th>
+            <th style="text-align:right">MRP OH</th><th style="text-align:right">OH Override</th>
+            <th style="text-align:right">MRP Open PO</th><th style="text-align:right">PO Override</th>
+            <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th><th style="width:40px"></th>
+          </tr></thead>
+          <tbody id="bom-comp-body"></tbody>
+        </table>
+        <div style="margin-top:16px;padding:12px;background:var(--bg3);border-radius:8px;display:flex;gap:20px" id="bom-summary" style="display:none">
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-sm" onclick="closeBOMModal()">Cancel</button>
+        <button class="btn btn-sm btn-accent" onclick="saveBOM()">Save BOM</button>
+      </div>
+    </div>
+  </div>
+
   <!-- EOL VIEW -->
   <div id="eol-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
     <!-- toolbar -->
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <span style="font-weight:600;font-size:13px;color:var(--text)">EOL Management</span>
+      <select id="eol-status-filter" onchange="renderEOLView()" style="font-size:11px">
+        <option value="">All (EOL + TBD)</option>
+        <option value="eol">EOL only</option>
+        <option value="to_be_discontinued">To Be Discontinued only</option>
+      </select>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <button class="btn btn-sm" onclick="document.getElementById('eol-disc-upload').click()">Upload Discontinuation Tracker</button>
+        <button class="btn btn-sm" onclick="document.getElementById('eol-disc-upload').click()">Upload Disc. Tracker</button>
         <input type="file" id="eol-disc-upload" accept=".xlsx,.xls" style="display:none" onchange="loadDiscTracker(event)">
-        <button class="btn btn-sm" onclick="document.getElementById('eol-bom-upload').click()">Upload BOM (ISS Report)</button>
+        <button class="btn btn-sm" onclick="document.getElementById('eol-bom-upload').click()">Upload BOM (ISS)</button>
         <input type="file" id="eol-bom-upload" accept=".xlsx,.xls" style="display:none" onchange="loadBOM(event)">
         <button class="btn btn-sm btn-accent" onclick="exportISSReport()">Export ISS Dashboard</button>
+        <button class="btn btn-sm" onclick="saveEOLSnapshot()" style="background:rgba(232,121,249,.12);border-color:rgba(232,121,249,.4);color:#e879f9">Save Snapshot</button>
       </div>
     </div>
     <!-- summary -->
@@ -616,6 +689,13 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div class="stat"><div class="stat-v" id="eol-cnt-boms" style="color:var(--accent)">—</div><div class="stat-l">BOMs Loaded</div></div>
       <div class="stat"><div class="stat-v" id="eol-cnt-fgs" style="color:var(--ok)">—</div><div class="stat-l">FGs Available</div></div>
       <div class="stat"><div class="stat-v" id="eol-cnt-disc" style="color:var(--muted)">—</div><div class="stat-l">Disc. Tracker Items</div></div>
+      <button class="btn btn-sm" onclick="toggleCalc()" style="margin-left:auto;font-size:11px" id="calc-toggle-btn">Show Calculator</button>
+    </div>
+    <!-- CALCULATOR -->
+    <div id="eol-calc" style="display:none;background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 20px;overflow:auto;max-height:45vh">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">Build Calculator — Enter desired quantities</div>
+      <div id="calc-build-inputs" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <div id="calc-results"></div>
     </div>
     <!-- content -->
     <div style="flex:1;overflow:auto;padding:16px 20px" id="eol-content">
@@ -670,6 +750,25 @@ document.addEventListener('click', function(e) {
     row.classList.add('row-hl');
   }
 });
+
+// ─────────────────────────────────────────────
+// SUPABASE CONFIG
+// ─────────────────────────────────────────────
+const SB_URL = 'https://ossthjpoohmhhgdgxprb.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zc3RoanBvb2htaGhnZGd4cHJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNzgxMzgsImV4cCI6MjA4OTk1NDEzOH0.5_OGO1ScTg4yCmNlU9PB1cPmaeoms-UyJ-hGaHT2_ic';
+const SB_SRK = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zc3RoanBvb2htaGhnZGd4cHJiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM3ODEzOCwiZXhwIjoyMDg5OTU0MTM4fQ.hX9WjdtUB-YTwexQyic7C0HOjrZTffJU3oQVbus1L9o';
+const sbHeaders = (key) => ({ 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' });
+
+async function sbFetch(path, opts = {}) {
+  const key = opts.write ? SB_SRK : SB_KEY;
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method: opts.method || 'GET',
+    headers: { ...sbHeaders(key), ...(opts.headers || {}), ...(opts.prefer ? { 'Prefer': opts.prefer } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if (opts.method === 'DELETE' || opts.prefer === 'return=minimal') return res.ok;
+  return res.ok ? res.json() : null;
+}
 
 // ─────────────────────────────────────────────
 // STATE
@@ -754,12 +853,13 @@ function loadFile(file) {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
       parseERP(raw);
+      saveMRPToSupabase().catch(err => console.warn('Failed to save MRP to cloud:', err));
     } catch(err) { alert('Error: ' + err.message); }
   };
   reader.readAsArrayBuffer(file);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const dz = document.getElementById('drop-zone');
   dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag'); });
   dz.addEventListener('dragleave', ()  => dz.classList.remove('drag'));
@@ -768,6 +868,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sync theme label on load
   const themeLabel = document.getElementById('theme-label');
   if (themeLabel && document.documentElement.classList.contains('light-mode')) themeLabel.textContent = 'light';
+
+  // Auto-load MRP from Supabase if available
+  try {
+    document.getElementById('cloud-loading').style.display = 'block';
+    document.getElementById('drop-zone').style.display = 'none';
+    const loaded = await loadMRPFromSupabase();
+    if (!loaded) {
+      document.getElementById('cloud-loading').style.display = 'none';
+      document.getElementById('drop-zone').style.display = '';
+    }
+  } catch(err) {
+    console.warn('Could not load MRP from cloud:', err);
+    document.getElementById('cloud-loading').style.display = 'none';
+    document.getElementById('drop-zone').style.display = '';
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -861,6 +976,118 @@ function parseERP(raw) {
   recalcAll();
   document.getElementById('tbl-loading').style.display = 'none';
   document.getElementById('main-table').style.display = 'table';
+}
+
+// ─────────────────────────────────────────────
+// MRP PERSISTENCE (Supabase)
+// ─────────────────────────────────────────────
+async function saveMRPToSupabase() {
+  const statusEl = document.getElementById('hdr-file');
+  const origText = statusEl.textContent;
+  statusEl.textContent = 'Saving to cloud…';
+
+  // Delete existing data, then bulk insert
+  await sbFetch('sp_mrp_data?item_id=neq.IMPOSSIBLE', { method: 'DELETE', write: true, prefer: 'return=minimal' });
+
+  // Batch insert in chunks of 200
+  const CHUNK = 200;
+  for (let i = 0; i < rawItems.length; i += CHUNK) {
+    const chunk = rawItems.slice(i, i + CHUNK).map(r => ({
+      item_id: r.itemId, description: r.desc,
+      qty_on_hand: r.onHand, qty_available_fg: r.avail, wip_qty: r.wip,
+      std_uom: r.uom, std_cost: r.stdCost, oh_value: r.value,
+      supplier_id: r.suppId, supplier_name: r.suppName, supplier_unit_price: r.unitPx,
+      open_po_qty: r.openPO, open_po_value: r['openPO$'],
+      past_due_po_qty: r.pastDuePO, past_due_po_value: r['pastDuePO$'],
+      total_usage: r.totalUse, mau: r.rawMau, proj_mau: r.projMau,
+      erp_pos: r.erpPOs, eb_balances: [],
+      uploaded_by: 'supply-planner'
+    }));
+    await sbFetch('sp_mrp_data', { method: 'POST', body: chunk, write: true, prefer: 'return=minimal' });
+  }
+
+  // Also persist item statuses
+  await syncItemStatusToSupabase();
+
+  const now = new Date().toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  statusEl.textContent = `${origText} — saved ${now}`;
+  console.log(`MRP saved: ${rawItems.length} items`);
+}
+
+async function loadMRPFromSupabase() {
+  const data = await sbFetch('sp_mrp_data?select=*&order=item_id&limit=5000');
+  if (!data || !data.length) return false;
+
+  rawItems = data.map(r => ({
+    itemId: r.item_id, desc: r.description || '',
+    onHand: +r.qty_on_hand || 0, avail: +r.qty_available_fg || 0, wip: +r.wip_qty || 0,
+    uom: r.std_uom || 'EA', stdCost: +r.std_cost || 0, value: +r.oh_value || 0,
+    suppId: r.supplier_id || '', suppName: r.supplier_name || '',
+    unitPx: +r.supplier_unit_price || 0,
+    openPO: +r.open_po_qty || 0, 'openPO$': +r.open_po_value || 0,
+    pastDuePO: +r.past_due_po_qty || 0, 'pastDuePO$': +r.past_due_po_value || 0,
+    totalUse: +r.total_usage || 0,
+    mau: (+r.proj_mau || +r.mau || 0),
+    rawMau: +r.mau || 0, projMau: +r.proj_mau || 0,
+    erpPOs: r.erp_pos || [0,0,0,0,0,0,0,0,0,0,0,0],
+  }));
+
+  const uploaded = data[0].uploaded_at;
+  const when = uploaded ? new Date(uploaded).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('hdr-file').textContent = `MRP from cloud — ${when}`;
+  document.getElementById('reload-btn').style.display = 'block';
+
+  // Load item statuses from Supabase
+  await loadItemStatusFromSupabase();
+
+  buildSFInputs();
+  buildSupplierFilter();
+  buildPOMonthFilter();
+  buildMonthFilter();
+  buildISSupplierFilter();
+  recalcAll();
+  return true;
+}
+
+async function syncItemStatusToSupabase() {
+  // Merge localStorage item statuses + target dates to Supabase
+  const entries = Object.entries(itemStatus).map(([item_id, status]) => ({
+    item_id, status,
+    target_date: targetDates[item_id] || null,
+    updated_at: new Date().toISOString()
+  }));
+  if (!entries.length) return;
+
+  // Upsert in chunks
+  const CHUNK = 200;
+  for (let i = 0; i < entries.length; i += CHUNK) {
+    await sbFetch('sp_item_status', {
+      method: 'POST', body: entries.slice(i, i + CHUNK), write: true,
+      prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' }
+    });
+  }
+}
+
+let componentFamilies = {};  // { itemId: 'family' }
+function saveComponentFamilies() {
+  try { localStorage.setItem('sp_comp_families', JSON.stringify(componentFamilies)); } catch(e) {}
+}
+try { componentFamilies = JSON.parse(localStorage.getItem('sp_comp_families') || '{}'); } catch(e) { componentFamilies = {}; }
+
+async function loadItemStatusFromSupabase() {
+  const data = await sbFetch('sp_item_status?select=*&limit=5000');
+  if (!data || !data.length) return;
+  data.forEach(r => {
+    if (r.status && r.status !== 'active') itemStatus[r.item_id] = r.status;
+    if (r.target_date) targetDates[r.item_id] = r.target_date;
+    if (r.component_family) componentFamilies[r.item_id] = r.component_family;
+  });
+  saveIS();
+  saveTargetDates();
+  saveComponentFamilies();
 }
 
 // ─────────────────────────────────────────────
@@ -1480,17 +1707,19 @@ function exportCSV() {
 // TAB SWITCHING
 // ─────────────────────────────────────────────
 function switchTab(tab) {
-  ['plan','po','lt','is','eol'].forEach(t => {
+  ['plan','po','lt','is','bom','eol'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
   });
   document.getElementById('plan-view').style.display = tab === 'plan' ? 'flex' : 'none';
   document.getElementById('po-view').style.display   = tab === 'po'   ? 'flex' : 'none';
   document.getElementById('lt-view').style.display   = tab === 'lt'   ? 'flex' : 'none';
   document.getElementById('is-view').style.display   = tab === 'is'   ? 'flex' : 'none';
+  document.getElementById('bom-view').style.display  = tab === 'bom'  ? 'flex' : 'none';
   document.getElementById('eol-view').style.display  = tab === 'eol'  ? 'flex' : 'none';
   if (tab === 'po') renderPOView();
   if (tab === 'lt') renderLTView();
   if (tab === 'is') renderISView();
+  if (tab === 'bom') renderBOMView();
   if (tab === 'eol') renderEOLView();
 }
 
@@ -2076,6 +2305,284 @@ function importISCSV(event) {
 }
 
 // ─────────────────────────────────────────────
+// BOM TAB
+// ─────────────────────────────────────────────
+let bomList = [];          // from Supabase sp_boms + sp_bom_lines
+let bomEditId = null;      // null = new, uuid = editing
+let bomComponents = [];    // temp state for modal
+
+function getMRPItem(sku) {
+  return rawItems.find(i => i.itemId === sku) || null;
+}
+
+async function loadBOMsFromSupabase() {
+  const boms = await sbFetch('sp_boms?select=*,sp_bom_lines(*)&order=created_at.desc');
+  bomList = (boms || []).map(b => ({
+    id: b.id, parentSku: b.parent_sku, parentName: b.parent_name,
+    components: (b.sp_bom_lines || []).map(l => ({
+      id: l.id, compSku: l.component_sku, compName: l.component_name,
+      qtyPerParent: +l.qty_per_parent || 1,
+      qtyOHOverride: l.qty_oh_override, openPOOverride: l.open_po_override,
+      sortOrder: l.sort_order || 0
+    })).sort((a,b) => a.sortOrder - b.sortOrder)
+  }));
+}
+
+function renderBOMView() {
+  const container = document.getElementById('bom-content');
+  document.getElementById('bom-count').textContent = `${bomList.length} BOMs`;
+
+  if (!bomList.length) {
+    container.innerHTML = `<div style="text-align:center;color:var(--muted);padding:60px 0">
+      <div style="font-size:40px;margin-bottom:12px">🧱</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">No BOMs created yet</div>
+      <div style="font-size:12px">Click "+ New BOM" to define a bill of materials.<br>Components will auto-populate from the MRP data.</div>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+  bomList.forEach((bom, bi) => {
+    // Calculate max buildable from components + MRP
+    const compCalcs = bom.components.map(c => {
+      const mrp = getMRPItem(c.compSku);
+      const qtyOH = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
+      const openPO = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : (mrp ? mrp.openPO : 0);
+      const avail = qtyOH + openPO;
+      const maxUnits = c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0;
+      return { ...c, mrp, qtyOH, openPO, avail, maxUnits, hasOverride: c.qtyOHOverride !== null || c.openPOOverride !== null };
+    });
+    const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
+    const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
+
+    // Parent FG on hand
+    const parentMRP = getMRPItem(bom.parentSku);
+    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    const totalAvail = fgOH + maxBuildable;
+
+    html += `<details style="margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <summary style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px">
+        <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)">${esc(bom.parentSku)}</span>
+        <span style="font-size:12px;color:var(--muted)">${esc(bom.parentName || '')}</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(0,163,225,.12);color:var(--accent);font-weight:600">${bom.components.length} components</span>
+        <div style="margin-left:auto;display:flex;gap:12px;align-items:center;font-family:var(--mono);font-size:12px">
+          <span>FG: <b>${fmt(fgOH)}</b></span>
+          <span style="color:var(--accent)">Build: <b>${fmt(maxBuildable)}</b></span>
+          <span style="color:var(--ok)">Total: <b>${fmt(totalAvail)}</b></span>
+          ${bottleneck ? `<span style="color:var(--warn);font-size:10px">⚠ ${esc(bottleneck.compSku)}</span>` : ''}
+        </div>
+      </summary>
+      <div style="padding:0 16px 14px">
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="btn btn-sm" onclick="editBOM('${bom.id}')">Edit</button>
+          <button class="btn btn-sm" onclick="deleteBOM('${bom.id}')" style="color:var(--danger)">Delete</button>
+        </div>
+        <table class="po-table"><thead><tr>
+          <th>Component ID</th><th>Description</th><th style="text-align:right">Qty/Parent</th>
+          <th style="text-align:right">QTY OH</th><th style="text-align:right">Open PO</th>
+          <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
+        </tr></thead><tbody>`;
+
+    compCalcs.forEach(c => {
+      const isBn = bottleneck && c.compSku === bottleneck.compSku;
+      const mrpOH = c.mrp ? c.mrp.onHand : 0;
+      const mrpPO = c.mrp ? c.mrp.openPO : 0;
+      html += `<tr style="${isBn ? 'background:rgba(251,191,36,.06)' : ''}">
+        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
+        <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
+        <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}${c.hasOverride && c.qtyOHOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpOH)}</span>` : ''}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmt(c.openPO)}${c.hasOverride && c.openPOOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpPO)}</span>` : ''}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmt(c.avail)}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.maxUnits)}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div></details>';
+  });
+
+  container.innerHTML = html;
+}
+
+function showBOMCreate() {
+  bomEditId = null;
+  bomComponents = [];
+  document.getElementById('bom-modal-title').textContent = 'New BOM';
+  document.getElementById('bom-parent-sku').value = '';
+  document.getElementById('bom-parent-name').value = '';
+  document.getElementById('bom-add-comp').value = '';
+
+  // Populate datalists from MRP with description for easy search
+  const skuList = rawItems.map(i => `<option value="${esc(i.itemId)}">${esc(i.itemId)} — ${esc(i.desc)}</option>`).join('');
+  document.getElementById('bom-sku-list').innerHTML = skuList;
+  document.getElementById('bom-comp-list').innerHTML = skuList;
+
+  renderBOMCompTable();
+  document.getElementById('bom-modal').style.display = 'flex';
+}
+
+function editBOM(id) {
+  const bom = bomList.find(b => b.id === id);
+  if (!bom) return;
+  bomEditId = id;
+  bomComponents = bom.components.map(c => ({...c}));
+  document.getElementById('bom-modal-title').textContent = `Edit BOM — ${bom.parentSku}`;
+  document.getElementById('bom-parent-sku').value = bom.parentSku;
+  document.getElementById('bom-parent-name').value = bom.parentName || '';
+  document.getElementById('bom-add-comp').value = '';
+
+  const skuList = rawItems.map(i => `<option value="${esc(i.itemId)}">${esc(i.itemId)} — ${esc(i.desc)}</option>`).join('');
+  document.getElementById('bom-sku-list').innerHTML = skuList;
+  document.getElementById('bom-comp-list').innerHTML = skuList;
+
+  renderBOMCompTable();
+  document.getElementById('bom-modal').style.display = 'flex';
+}
+
+function autofillBOMParent(sku) {
+  const mrp = getMRPItem(sku.trim());
+  if (mrp) {
+    const nameEl = document.getElementById('bom-parent-name');
+    if (!nameEl.value) nameEl.value = mrp.desc;
+  }
+}
+
+function closeBOMModal() {
+  document.getElementById('bom-modal').style.display = 'none';
+}
+
+function addBOMComponent() {
+  let input = document.getElementById('bom-add-comp').value.trim();
+  if (!input) return;
+  // Support pasting "SKU - Description" from datalist
+  const sku = input.split(' — ')[0].trim() || input;
+  if (bomComponents.find(c => c.compSku === sku)) { alert('Component already in BOM'); return; }
+  const mrp = getMRPItem(sku);
+  if (!mrp) {
+    if (!confirm(`"${sku}" not found in MRP. Add anyway?`)) return;
+  }
+  bomComponents.push({
+    compSku: sku, compName: mrp ? mrp.desc : input,
+    qtyPerParent: 1, qtyOHOverride: null, openPOOverride: null, sortOrder: bomComponents.length
+  });
+  document.getElementById('bom-add-comp').value = '';
+  renderBOMCompTable();
+}
+
+function removeBOMComp(idx) {
+  bomComponents.splice(idx, 1);
+  renderBOMCompTable();
+}
+
+function renderBOMCompTable() {
+  const tbody = document.getElementById('bom-comp-body');
+  const summary = document.getElementById('bom-summary');
+
+  if (!bomComponents.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px">No components — add items above</td></tr>';
+    summary.innerHTML = '';
+    return;
+  }
+
+  let maxBuildable = Infinity;
+  let bottleneckSku = '';
+
+  tbody.innerHTML = bomComponents.map((c, idx) => {
+    const mrp = getMRPItem(c.compSku);
+    const mrpOH = mrp ? mrp.onHand : 0;
+    const mrpPO = mrp ? mrp.openPO : 0;
+    const qtyOH = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : mrpOH;
+    const openPO = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : mrpPO;
+    const avail = qtyOH + openPO;
+    const maxU = c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0;
+    if (maxU < maxBuildable) { maxBuildable = maxU; bottleneckSku = c.compSku; }
+
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}</td>
+      <td style="font-size:11px">${esc(c.compName || (mrp ? mrp.desc : ''))}</td>
+      <td style="text-align:right"><input type="number" value="${c.qtyPerParent}" min="1" step="1" style="width:50px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyPerParent=+this.value;renderBOMCompTable()"></td>
+      <td style="text-align:right">
+        <input type="number" value="${qtyOH}" placeholder="${mrpOH}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyOHOverride=this.value===''?null:+this.value;renderBOMCompTable()">
+        ${c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? `<div style="font-size:9px;color:var(--accent);margin-top:2px">MRP: ${fmt(mrpOH)}</div>` : ''}
+      </td>
+      <td style="text-align:right">—</td>
+      <td style="text-align:right">
+        <input type="number" value="${openPO}" placeholder="${mrpPO}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].openPOOverride=this.value===''?null:+this.value;renderBOMCompTable()">
+        ${c.openPOOverride !== null && c.openPOOverride !== undefined ? `<div style="font-size:9px;color:var(--accent);margin-top:2px">MRP: ${fmt(mrpPO)}</div>` : ''}
+      </td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(avail)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(maxU)}</td>
+      <td><span onclick="removeBOMComp(${idx})" style="cursor:pointer;color:var(--danger);font-size:14px">✕</span></td>
+    </tr>`;
+  }).join('');
+
+  if (maxBuildable === Infinity) maxBuildable = 0;
+  const parentMRP = getMRPItem(document.getElementById('bom-parent-sku').value.trim());
+  const fgOH = parentMRP ? parentMRP.onHand : 0;
+
+  summary.innerHTML = `
+    <div class="stat"><div class="stat-v" style="color:var(--text)">${fmt(fgOH)}</div><div class="stat-l">FG On Hand</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--accent)">${fmt(maxBuildable)}</div><div class="stat-l">Max Buildable</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--ok)">${fmt(fgOH + maxBuildable)}</div><div class="stat-l">Total Available</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--warn)">${esc(bottleneckSku)}</div><div class="stat-l">Bottleneck</div></div>
+  `;
+}
+
+async function saveBOM() {
+  const parentSku = document.getElementById('bom-parent-sku').value.trim();
+  const parentName = document.getElementById('bom-parent-name').value.trim();
+  if (!parentSku) { alert('Enter a Parent SKU'); return; }
+  if (!bomComponents.length) { alert('Add at least one component'); return; }
+
+  if (bomEditId) {
+    // Update existing: delete old lines, update parent, insert new lines
+    await sbFetch(`sp_bom_lines?bom_id=eq.${bomEditId}`, { method: 'DELETE', write: true, prefer: 'return=minimal' });
+    await sbFetch(`sp_boms?id=eq.${bomEditId}`, {
+      method: 'PATCH', write: true, prefer: 'return=minimal',
+      body: { parent_sku: parentSku, parent_name: parentName, updated_at: new Date().toISOString() }
+    });
+    const lines = bomComponents.map((c, i) => ({
+      bom_id: bomEditId, component_sku: c.compSku, component_name: c.compName,
+      qty_per_parent: c.qtyPerParent,
+      qty_oh_override: c.qtyOHOverride, open_po_override: c.openPOOverride,
+      sort_order: i
+    }));
+    await sbFetch('sp_bom_lines', { method: 'POST', body: lines, write: true, prefer: 'return=minimal' });
+  } else {
+    // Create new
+    const bomRes = await sbFetch('sp_boms', {
+      method: 'POST', write: true, headers: { 'Prefer': 'return=representation' },
+      body: { parent_sku: parentSku, parent_name: parentName }
+    });
+    if (!bomRes || !bomRes.length) { alert('Failed to create BOM'); return; }
+    const bomId = bomRes[0].id;
+    const lines = bomComponents.map((c, i) => ({
+      bom_id: bomId, component_sku: c.compSku, component_name: c.compName,
+      qty_per_parent: c.qtyPerParent,
+      qty_oh_override: c.qtyOHOverride, open_po_override: c.openPOOverride,
+      sort_order: i
+    }));
+    await sbFetch('sp_bom_lines', { method: 'POST', body: lines, write: true, prefer: 'return=minimal' });
+  }
+
+  closeBOMModal();
+  await loadBOMsFromSupabase();
+  renderBOMView();
+  // Also refresh EOL view since it uses BOMs
+  renderEOLView();
+}
+
+async function deleteBOM(id) {
+  if (!confirm('Delete this BOM?')) return;
+  await sbFetch(`sp_boms?id=eq.${id}`, { method: 'DELETE', write: true, prefer: 'return=minimal' });
+  await loadBOMsFromSupabase();
+  renderBOMView();
+  renderEOLView();
+}
+
+// Load BOMs on startup
+loadBOMsFromSupabase().catch(e => console.warn('Failed to load BOMs:', e));
+
+// ─────────────────────────────────────────────
 // EOL TAB
 // ─────────────────────────────────────────────
 let eolDiscTracker = [];  // parsed discontinuation tracker items
@@ -2234,134 +2741,109 @@ function loadBOM(event) {
 try { eolDiscTracker = JSON.parse(localStorage.getItem('sp_eol_disc') || '[]'); } catch(e) { eolDiscTracker = []; }
 try { eolBOMs = JSON.parse(localStorage.getItem('sp_eol_boms') || '[]'); } catch(e) { eolBOMs = []; }
 
+// EOL qty overrides (in-memory, saved with snapshot)
+let eolOverrides = {};  // { itemId: { qtyOH: n, openPO: n } }
+
 function renderEOLView() {
   const container = document.getElementById('eol-content');
+  const statusFilter = document.getElementById('eol-status-filter').value;
 
-  // Get EOL/TBD items from the main item status
-  const eolItems = rawItems.filter(i => {
+  // Get EOL/TBD items from the main item status + MRP
+  let eolItems = rawItems.filter(i => {
     const s = getIS(i.itemId);
+    if (statusFilter) return s === statusFilter;
     return s === 'eol' || s === 'to_be_discontinued';
   });
 
   // Update summary counts
-  document.getElementById('eol-cnt-items').textContent = rawItems.filter(i => getIS(i.itemId) === 'eol').length || '—';
-  document.getElementById('eol-cnt-tbd').textContent   = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length || '—';
-  document.getElementById('eol-cnt-boms').textContent  = eolBOMs.length || '—';
-  document.getElementById('eol-cnt-fgs').textContent   = eolBOMs.reduce((s,b) => s + b.fgs.length, 0) || '—';
-  document.getElementById('eol-cnt-disc').textContent  = eolDiscTracker.length || '—';
+  const cntEol = rawItems.filter(i => getIS(i.itemId) === 'eol').length;
+  const cntTbd = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
+  document.getElementById('eol-cnt-items').textContent = cntEol || '—';
+  document.getElementById('eol-cnt-tbd').textContent   = cntTbd || '—';
+  document.getElementById('eol-cnt-boms').textContent  = bomList.length + eolBOMs.length || '—';
+  document.getElementById('eol-cnt-fgs').textContent   = bomList.length + eolBOMs.reduce((s,b) => s + b.fgs.length, 0) || '—';
+  document.getElementById('eol-cnt-disc').textContent  = eolItems.length || '—';
 
-  if (!eolItems.length && !eolBOMs.length && !eolDiscTracker.length) {
+  if (!eolItems.length && !bomList.length && !eolBOMs.length) {
     container.innerHTML = `<div style="text-align:center;color:var(--muted);padding:60px 0">
       <div style="font-size:40px;margin-bottom:12px">🔚</div>
       <div style="font-size:14px;font-weight:600;margin-bottom:6px">No EOL data yet</div>
-      <div style="font-size:12px">Mark items as EOL or "To Be Discontinued" in the Item Status tab,<br>then upload a Discontinuation Tracker or BOM file above.</div>
+      <div style="font-size:12px">Mark items as EOL or "To Be Discontinued" in the Item Status tab,<br>then create BOMs in the BOMs tab.</div>
     </div>`;
     return;
   }
 
   let html = '';
 
-  // ── SECTION 1: BOM VIEWS ──
-  if (eolBOMs.length) {
-    eolBOMs.forEach((bom, bi) => {
-      html += `<div style="margin-bottom:24px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <span style="font-size:15px;font-weight:700;color:var(--text)">${esc(bom.name)}</span>
-          <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(0,163,225,.12);color:var(--accent);font-weight:600">${bom.fgs.length} FGs</span>
-          <button class="btn btn-sm" onclick="eolBOMs.splice(${bi},1);localStorage.setItem('sp_eol_boms',JSON.stringify(eolBOMs));renderEOLView()" style="margin-left:auto;font-size:10px;color:var(--danger)">Remove</button>
-        </div>`;
-
-      // FG summary cards
-      html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px">`;
-      bom.fgs.forEach(fg => {
-        const statusColor = fg.totalAvailable <= 0 ? 'var(--danger)' : fg.maxBuildable <= 0 ? 'var(--warn)' : 'var(--ok)';
-        const statusLabel = fg.totalAvailable <= 0 ? 'OUT' : fg.maxBuildable <= 0 ? 'FG ONLY' : 'BUILDABLE';
-        html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
-            <div>
-              <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent)">${esc(fg.fgCode)}</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(fg.fgName)}</div>
-            </div>
-            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;background:${statusColor};color:#fff">${statusLabel}</span>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:8px">
-            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text)">${fmt(fg.fgOH)}</div><div style="font-size:9px;color:var(--muted)">FG On Hand</div></div>
-            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">${fmt(fg.maxBuildable)}</div><div style="font-size:9px;color:var(--muted)">Max Buildable</div></div>
-            <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--ok)">${fmt(fg.totalAvailable)}</div><div style="font-size:9px;color:var(--muted)">Total Available</div></div>
-          </div>
-          <div style="font-size:10px;color:var(--muted)">Bottleneck: <span style="font-family:var(--mono);color:var(--warn)">${esc(fg.bottleneck)}</span> (${fmt(fg.bottleneckQty)} OH)</div>
-        </div>`;
-      });
-      html += '</div>';
-
-      // Component detail table per BOM
-      html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">Component Details</summary>`;
-      html += `<table class="po-table" style="margin-bottom:8px">
-        <thead><tr>
-          <th>FG</th><th>Component ID</th><th>Description</th><th style="text-align:right">Qty/FG</th>
-          <th style="text-align:right">QTY OH</th><th style="text-align:right">Open PO</th>
-          <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
-        </tr></thead><tbody>`;
-      bom.fgs.forEach(fg => {
-        fg.components.forEach((c, ci) => {
-          const isBottleneck = c.compId === fg.bottleneck;
-          html += `<tr style="${isBottleneck ? 'background:rgba(251,191,36,.06)' : ''}">
-            ${ci === 0 ? `<td rowspan="${fg.components.length}" style="font-family:var(--mono);font-size:11px;font-weight:600;vertical-align:top;border-right:1px solid var(--border)">${esc(fg.fgCode)}</td>` : ''}
-            <td style="font-family:var(--mono);font-size:11px">${esc(c.compId)}${isBottleneck ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
-            <td style="font-size:11px">${esc(c.compDesc)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${c.qtyPerFG}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmt(c.openPO)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmt(c.availStock)}</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.maxUnits)}</td>
-          </tr>`;
-        });
-      });
-      html += '</tbody></table></details></div>';
+  // ── SECTION 1: BOM CARDS (Supabase BOMs + legacy uploaded) ──
+  const allBomCards = [];
+  bomList.forEach(bom => {
+    const compCalcs = bom.components.map(c => {
+      const mrp = getMRPItem(c.compSku);
+      const qtyOH = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
+      const openPO = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : (mrp ? mrp.openPO : 0);
+      const avail = qtyOH + openPO;
+      return { ...c, mrp, qtyOH, openPO, avail, maxUnits: c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0 };
     });
-  }
-
-  // ── SECTION 2: DISCONTINUATION TRACKER ──
-  if (eolDiscTracker.length) {
-    // Group by product family
-    const families = {};
-    eolDiscTracker.forEach(item => {
-      const pf = item.productFamily || 'Other';
-      if (!families[pf]) families[pf] = [];
-      families[pf].push(item);
+    const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
+    const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
+    const parentMRP = getMRPItem(bom.parentSku);
+    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    allBomCards.push({
+      fgCode: bom.parentSku, fgName: bom.parentName || '', fgOH,
+      maxBuildable, totalAvailable: fgOH + maxBuildable,
+      bottleneck: bottleneck ? bottleneck.compSku : '—',
+      bottleneckQty: bottleneck ? bottleneck.qtyOH : 0,
+      components: compCalcs, source: 'supabase', bomId: bom.id
     });
+  });
+  eolBOMs.forEach(bom => {
+    bom.fgs.forEach(fg => allBomCards.push({ ...fg, source: 'upload' }));
+  });
 
+  if (allBomCards.length) {
     html += `<div style="margin-bottom:24px">
-      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Discontinuation Tracker</div>`;
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Available to Build / Sell</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px">`;
+    allBomCards.forEach(fg => {
+      const sc = fg.totalAvailable <= 0 ? 'var(--danger)' : fg.maxBuildable <= 0 ? 'var(--warn)' : 'var(--ok)';
+      const sl = fg.totalAvailable <= 0 ? 'OUT' : fg.maxBuildable <= 0 ? 'FG ONLY' : 'BUILDABLE';
+      html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+          <div>
+            <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent)">${esc(fg.fgCode)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(fg.fgName)}</div>
+          </div>
+          <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;background:${sc};color:#fff">${sl}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:8px">
+          <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text)">${fmt(fg.fgOH)}</div><div style="font-size:9px;color:var(--muted)">FG On Hand</div></div>
+          <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent)">${fmt(fg.maxBuildable)}</div><div style="font-size:9px;color:var(--muted)">Max Buildable</div></div>
+          <div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--ok)">${fmt(fg.totalAvailable)}</div><div style="font-size:9px;color:var(--muted)">Total Available</div></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted)">Bottleneck: <span style="font-family:var(--mono);color:var(--warn)">${esc(fg.bottleneck)}</span> (${fmt(fg.bottleneckQty)} OH)</div>
+      </div>`;
+    });
+    html += '</div>';
 
-    Object.entries(families).forEach(([pf, items]) => {
-      // Get latest week data for each item
-      const latestWk = items[0].weeklyData.length - 1;
-
-      html += `<details open style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">${esc(pf)} (${items.length} items)</summary>`;
+    // Component details (expandable) for each BOM
+    allBomCards.filter(b => b.components).forEach(fg => {
+      html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">${esc(fg.fgCode)} — Component Details</summary>`;
       html += `<table class="po-table"><thead><tr>
-        <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th>
-        <th style="text-align:right">Std Cost</th><th style="text-align:right">Run Rate</th>
-        <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
-        <th style="text-align:right">$ OH</th><th style="text-align:right">Months OH</th>
+        <th>Component ID</th><th>Description</th><th style="text-align:right">Qty/FG</th>
+        <th style="text-align:right">QTY OH</th><th style="text-align:right">Open PO</th>
+        <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
       </tr></thead><tbody>`;
-
-      items.forEach(item => {
-        const latest = item.weeklyData[latestWk] || {};
-        const mohColor = latest.monthsOH === null ? 'var(--muted)' : latest.monthsOH < 3 ? 'var(--ok)' : latest.monthsOH <= 8 ? 'var(--warn)' : 'var(--danger)';
-        const statusColor = item.status.includes('Decreasing') ? 'var(--warn)' : 'var(--danger)';
-        html += `<tr>
-          <td style="font-family:var(--mono);font-size:11px">${esc(item.itemId)}</td>
-          <td style="font-size:11px">${esc(item.desc)}</td>
-          <td style="font-size:10px;color:var(--muted)">${esc(item.componentFamily)}</td>
-          <td style="font-size:10px;color:var(--muted)">${esc(item.supplier)}</td>
-          <td><span style="font-size:10px;font-weight:600;color:${statusColor}">${esc(item.status)}</span></td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">$${item.stdCost.toFixed(2)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">${item.runRate > 0 ? item.runRate.toFixed(1) : '—'}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmt(latest.unitsOH || 0)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmt(latest.openPO || 0)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">$${fmt(latest.dollarOH || 0)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${mohColor}">${latest.monthsOH !== null && latest.monthsOH !== undefined ? latest.monthsOH.toFixed(1) : 'N/A'}</td>
+      fg.components.forEach(c => {
+        const isBn = c.compSku === fg.bottleneck;
+        html += `<tr style="${isBn ? 'background:rgba(251,191,36,.06)' : ''}">
+          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
+          <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
+          <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(c.openPO)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(c.avail)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.maxUnits)}</td>
         </tr>`;
       });
       html += '</tbody></table></details>';
@@ -2369,46 +2851,462 @@ function renderEOLView() {
     html += '</div>';
   }
 
-  // ── SECTION 3: EOL ITEMS FROM ITEM STATUS ──
+  // ── SECTION 2: DISCONTINUATION TRACKER (from MRP + Item Status) ──
   if (eolItems.length) {
-    html += `<div style="margin-bottom:24px">
-      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Items Marked EOL / To Be Discontinued (from Item Status)</div>`;
-    html += `<table class="po-table"><thead><tr>
-      <th>Item ID</th><th>Description</th><th>Supplier</th><th>Status</th><th>Target Date</th>
-      <th style="text-align:right">On Hand</th><th style="text-align:right">MAU</th>
-      <th style="text-align:right">Months OH</th>
-    </tr></thead><tbody>`;
     eolItems.sort((a,b) => {
       const sa = getIS(a.itemId) === 'eol' ? 0 : 1;
       const sb = getIS(b.itemId) === 'eol' ? 0 : 1;
       return sa - sb || a.suppName.localeCompare(b.suppName) || a.itemId.localeCompare(b.itemId);
     });
+
+    const totalDollarOH = eolItems.reduce((s, item) => {
+      const ov = eolOverrides[item.itemId];
+      const oh = ov && ov.qtyOH !== undefined ? ov.qtyOH : item.onHand;
+      const po = ov && ov.openPO !== undefined ? ov.openPO : item.openPO;
+      return s + (oh + po) * item.stdCost;
+    }, 0);
+
+    html += `<div style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <span style="font-size:15px;font-weight:700;color:var(--text)">Discontinuation Tracker</span>
+        <span style="font-size:11px;color:var(--muted)">${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
+      </div>`;
+    html += `<table class="po-table"><thead><tr>
+      <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th><th>Target Date</th>
+      <th style="text-align:right">Std Cost</th><th style="text-align:right">MAU</th>
+      <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
+      <th style="text-align:right">$ OH</th><th style="text-align:right">Months OH</th>
+    </tr></thead><tbody>`;
+
     eolItems.forEach(item => {
       const is = getIS(item.itemId);
       const lbl = IS_LABELS[is];
       const dateVal = targetDates[item.itemId] || '';
-      const mohVal = item.mau > 0 ? (item.onHand / item.mau) : null;
+      const ov = eolOverrides[item.itemId] || {};
+      const qtyOH = ov.qtyOH !== undefined ? ov.qtyOH : item.onHand;
+      const openPO = ov.openPO !== undefined ? ov.openPO : item.openPO;
+      const dollarOH = (qtyOH + openPO) * item.stdCost;
+      const mohVal = item.mau > 0 ? (qtyOH + openPO) / item.mau : null;
       const mohColor = mohVal === null ? 'var(--muted)' : mohVal < 3 ? 'var(--ok)' : mohVal <= 8 ? 'var(--warn)' : 'var(--danger)';
+      const family = componentFamilies[item.itemId] || '';
+
       html += `<tr>
         <td style="font-family:var(--mono);font-size:11px">${esc(item.itemId)}</td>
         <td style="font-size:11px">${esc(item.desc)}</td>
+        <td style="font-size:10px;color:var(--muted)">${esc(family)}</td>
         <td style="font-size:10px;color:var(--muted)">${esc(item.suppName)}</td>
         <td><span style="font-size:10px;font-weight:600;color:${lbl.color}">${lbl.label}</span></td>
         <td style="font-family:var(--mono);font-size:11px;color:${dateVal ? 'var(--text)' : 'var(--muted)'}">${dateVal || '—'}</td>
-        <td style="text-align:right;font-family:var(--mono);font-size:11px">${item.onHand > 0 ? fmt(item.onHand) : '—'}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:11px">$${item.stdCost.toFixed(2)}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted)">${item.mau > 0 ? item.mau.toFixed(2) : '—'}</td>
+        <td style="text-align:right">
+          <input type="number" value="${qtyOH}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="setEOLOverride('${esc(item.itemId)}','qtyOH',this.value,${item.onHand},this)">
+          ${ov.qtyOH !== undefined ? `<div style="font-size:9px;color:var(--accent)">MRP: ${fmt(item.onHand)}</div>` : ''}
+        </td>
+        <td style="text-align:right">
+          <input type="number" value="${openPO}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="setEOLOverride('${esc(item.itemId)}','openPO',this.value,${item.openPO},this)">
+          ${ov.openPO !== undefined ? `<div style="font-size:9px;color:var(--accent)">MRP: ${fmt(item.openPO)}</div>` : ''}
+        </td>
+        <td style="text-align:right;font-family:var(--mono);font-size:11px">$${fmt(dollarOH)}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${mohColor}">${mohVal !== null ? mohVal.toFixed(1) : 'N/A'}</td>
       </tr>`;
     });
     html += '</tbody></table></div>';
   }
 
+  // ── SECTION 3: TREND (from snapshots) ──
+  html += '<div id="eol-trend-section"></div>';
+
   container.innerHTML = html;
+  loadTrendData();
+}
+
+async function loadTrendData() {
+  const section = document.getElementById('eol-trend-section');
+  if (!section) return;
+
+  const statusFilter = document.getElementById('eol-status-filter').value;
+  const snapshots = await sbFetch('sp_eol_snapshots?select=*&order=snapshot_date,item_id&limit=10000');
+  if (!snapshots || !snapshots.length) {
+    section.innerHTML = '';
+    return;
+  }
+
+  // Filter snapshots: only show items currently marked EOL or TBD
+  const activeEolItems = new Set(rawItems.filter(i => {
+    const s = getIS(i.itemId);
+    if (statusFilter) return s === statusFilter;
+    return s === 'eol' || s === 'to_be_discontinued';
+  }).map(i => i.itemId));
+
+  const filtered = snapshots.filter(s => activeEolItems.has(s.item_id));
+  if (!filtered.length) {
+    section.innerHTML = '';
+    return;
+  }
+
+  // Group by date
+  const byDate = {};
+  const allItems = new Set();
+  filtered.forEach(s => {
+    if (!byDate[s.snapshot_date]) byDate[s.snapshot_date] = {};
+    byDate[s.snapshot_date][s.item_id] = s;
+    allItems.add(s.item_id);
+  });
+
+  const dates = Object.keys(byDate).sort();
+  if (dates.length < 1) { section.innerHTML = ''; return; }
+
+  // Aggregate totals per date
+  const totals = dates.map(d => {
+    const items = Object.values(byDate[d]);
+    return {
+      date: d,
+      label: new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      totalDollarOH: items.reduce((s, i) => s + (+i.dollar_oh || 0), 0),
+      totalUnitsOH: items.reduce((s, i) => s + (+i.qty_on_hand || 0), 0),
+      itemCount: items.length,
+      lowCount: items.filter(i => i.months_oh !== null && +i.months_oh < 3).length,
+      midCount: items.filter(i => i.months_oh !== null && +i.months_oh >= 3 && +i.months_oh <= 8).length,
+      highCount: items.filter(i => i.months_oh !== null && +i.months_oh > 8).length,
+    };
+  });
+
+  // Max for chart scaling
+  const maxDollar = Math.max(...totals.map(t => t.totalDollarOH), 1);
+
+  let html = `<div style="margin-top:24px">
+    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px">Trend — $ OH Over Time</div>`;
+
+  // Line chart via SVG
+  const chartW = Math.max(400, dates.length * 80);
+  const chartH = 180;
+  const padL = 60, padR = 20, padT = 20, padB = 30;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+  const minDollar = Math.min(...totals.map(t => t.totalDollarOH)) * 0.9;
+
+  const pts = totals.map((t, i) => {
+    const x = padL + (dates.length > 1 ? i / (dates.length - 1) * plotW : plotW / 2);
+    const y = padT + plotH - ((t.totalDollarOH - minDollar) / (maxDollar - minDollar || 1) * plotH);
+    return { x, y, ...t };
+  });
+  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaPath = linePath + ` L${pts[pts.length-1].x.toFixed(1)},${padT + plotH} L${pts[0].x.toFixed(1)},${padT + plotH} Z`;
+
+  // Y-axis ticks
+  const yTicks = 4;
+  const yStep = (maxDollar - minDollar) / yTicks;
+
+  html += `<div style="overflow-x:auto;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:16px">
+    <svg width="${chartW}" height="${chartH}" style="font-family:var(--mono)">
+      <!-- grid lines -->
+      ${Array.from({length: yTicks + 1}, (_, i) => {
+        const val = minDollar + i * yStep;
+        const y = padT + plotH - (i / yTicks * plotH);
+        return `<line x1="${padL}" y1="${y}" x2="${chartW - padR}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3"/>
+          <text x="${padL - 6}" y="${y + 3}" text-anchor="end" fill="var(--muted)" font-size="9">$${fmtK(val)}</text>`;
+      }).join('')}
+      <!-- area fill -->
+      <path d="${areaPath}" fill="var(--accent)" opacity="0.08"/>
+      <!-- line -->
+      <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- dots + labels -->
+      ${pts.map(p => `
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--accent)" stroke="var(--bg)" stroke-width="2"/>
+        <text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1) - 10}" text-anchor="middle" fill="var(--text)" font-size="10" font-weight="600">$${fmtK(p.totalDollarOH)}</text>
+        <text x="${p.x.toFixed(1)}" y="${padT + plotH + 16}" text-anchor="middle" fill="var(--muted)" font-size="9">${p.label}</text>
+      `).join('')}
+    </svg>
+  </div>`;
+
+  // Summary table
+  html += `<table class="po-table"><thead><tr>
+    <th>Date</th><th style="text-align:right">Items</th><th style="text-align:right">Total Units</th>
+    <th style="text-align:right">Total $ OH</th>
+    <th style="text-align:right;color:var(--ok)">Low (&lt;3mo)</th>
+    <th style="text-align:right;color:var(--warn)">Monitor (3-8mo)</th>
+    <th style="text-align:right;color:var(--danger)">High (&gt;8mo)</th>
+    <th style="text-align:right">$ Change</th>
+  </tr></thead><tbody>`;
+
+  totals.forEach((t, i) => {
+    const prev = i > 0 ? totals[i - 1].totalDollarOH : t.totalDollarOH;
+    const change = t.totalDollarOH - prev;
+    const changeColor = change < 0 ? 'var(--ok)' : change > 0 ? 'var(--danger)' : 'var(--muted)';
+    const changeStr = i === 0 ? '—' : (change >= 0 ? '+' : '') + '$' + fmtK(change);
+    html += `<tr>
+      <td style="font-family:var(--mono);font-size:11px">${t.label}</td>
+      <td style="text-align:right;font-family:var(--mono)">${t.itemCount}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(t.totalUnitsOH)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600">$${fmt(t.totalDollarOH)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--ok)">${t.lowCount}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--warn)">${t.midCount}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--danger)">${t.highCount}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${changeColor}">${changeStr}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+
+  // Per-item trend (expandable)
+  html += `<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">Per-Item Trend (${allItems.size} items)</summary>`;
+  html += `<table class="po-table"><thead><tr>
+    <th>Item ID</th><th>Description</th><th>Supplier</th>`;
+  dates.forEach(d => {
+    const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    html += `<th style="text-align:right;min-width:60px">${label}<br><span style="font-size:8px">Units</span></th>`;
+  });
+  html += `<th style="text-align:right">Change</th></tr></thead><tbody>`;
+
+  [...allItems].sort().forEach(itemId => {
+    const firstSnap = snapshots.find(s => s.item_id === itemId);
+    const vals = dates.map(d => byDate[d][itemId] ? +byDate[d][itemId].qty_on_hand : null);
+    const firstVal = vals.find(v => v !== null);
+    const lastVal = [...vals].reverse().find(v => v !== null);
+    const change = firstVal !== null && lastVal !== null ? lastVal - firstVal : null;
+    const changeColor = change === null ? 'var(--muted)' : change < 0 ? 'var(--ok)' : change > 0 ? 'var(--danger)' : 'var(--muted)';
+
+    html += `<tr>
+      <td style="font-family:var(--mono);font-size:11px">${esc(itemId)}</td>
+      <td style="font-size:10px">${esc(firstSnap ? firstSnap.supplier_name || '' : '')}</td>
+      <td style="font-size:10px;color:var(--muted)">${esc(firstSnap ? firstSnap.component_family || '' : '')}</td>`;
+    vals.forEach((v, vi) => {
+      const prev = vi > 0 ? vals[vi - 1] : v;
+      const cellColor = v === null ? '' : (prev !== null && v < prev ? 'color:var(--ok)' : prev !== null && v > prev ? 'color:var(--danger)' : '');
+      html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;${cellColor}">${v !== null ? fmt(v) : '—'}</td>`;
+    });
+    html += `<td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${changeColor}">${change !== null ? (change >= 0 ? '+' : '') + fmt(change) : '—'}</td>`;
+    html += '</tr>';
+  });
+  html += '</tbody></table></details></div>';
+
+  section.innerHTML = html;
+}
+
+function setEOLOverride(itemId, field, value, mrpValue, inputEl) {
+  const numVal = value === '' ? undefined : +value;
+  if (numVal === mrpValue || numVal === undefined) {
+    if (eolOverrides[itemId]) {
+      delete eolOverrides[itemId][field];
+      if (!Object.keys(eolOverrides[itemId]).length) delete eolOverrides[itemId];
+    }
+  } else {
+    if (!eolOverrides[itemId]) eolOverrides[itemId] = {};
+    eolOverrides[itemId][field] = numVal;
+  }
+  // Show/hide MRP label below input
+  const td = inputEl.closest('td');
+  let mrpLabel = td.querySelector('.eol-mrp-label');
+  const isOverridden = eolOverrides[itemId] && eolOverrides[itemId][field] !== undefined;
+  if (isOverridden) {
+    if (!mrpLabel) {
+      mrpLabel = document.createElement('div');
+      mrpLabel.className = 'eol-mrp-label';
+      mrpLabel.style.cssText = 'font-size:9px;color:var(--accent);margin-top:2px';
+      td.appendChild(mrpLabel);
+    }
+    mrpLabel.textContent = 'MRP: ' + Math.round(mrpValue).toLocaleString();
+  } else if (mrpLabel) {
+    mrpLabel.remove();
+  }
+}
+
+async function saveEOLSnapshot() {
+  const dateStr = prompt('Snapshot date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+  if (!dateStr) return;
+
+  const eolItems = rawItems.filter(i => {
+    const s = getIS(i.itemId);
+    return s === 'eol' || s === 'to_be_discontinued';
+  });
+
+  if (!eolItems.length) { alert('No EOL/TBD items to snapshot'); return; }
+
+  const rows = eolItems.map(item => {
+    const is = getIS(item.itemId);
+    const ov = eolOverrides[item.itemId] || {};
+    const qtyOH = ov.qtyOH !== undefined ? ov.qtyOH : item.onHand;
+    const openPO = ov.openPO !== undefined ? ov.openPO : item.openPO;
+    const dollarOH = (qtyOH + openPO) * item.stdCost;
+    const mohVal = item.mau > 0 ? (qtyOH + openPO) / item.mau : null;
+    return {
+      snapshot_date: dateStr, item_id: item.itemId, item_status: is,
+      qty_on_hand: qtyOH, open_po_qty: openPO, std_cost: item.stdCost,
+      mau: item.mau, dollar_oh: dollarOH, months_oh: mohVal,
+      qty_oh_override: ov.qtyOH !== undefined ? ov.qtyOH : null,
+      supplier_name: item.suppName, component_family: componentFamilies[item.itemId] || null
+    };
+  });
+
+  // Upsert (replace existing snapshot for same date+item)
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await sbFetch('sp_eol_snapshots', {
+      method: 'POST', body: rows.slice(i, i + CHUNK), write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' }
+    });
+  }
+
+  alert(`Snapshot saved: ${rows.length} items for ${dateStr}`);
+}
+
+// ── BUILD CALCULATOR ──
+let calcVisible = false;
+function toggleCalc() {
+  calcVisible = !calcVisible;
+  document.getElementById('eol-calc').style.display = calcVisible ? 'block' : 'none';
+  document.getElementById('calc-toggle-btn').textContent = calcVisible ? 'Hide Calculator' : 'Show Calculator';
+  if (calcVisible) renderCalcInputs();
+}
+
+function renderCalcInputs() {
+  const container = document.getElementById('calc-build-inputs');
+  const allBoms = [...bomList, ...eolBOMs.flatMap(b => b.fgs.map(fg => ({
+    parentSku: fg.fgCode, parentName: fg.fgName,
+    components: (fg.components || []).map(c => ({ compSku: c.compId, compName: c.compDesc, qtyPerParent: c.qtyPerFG, qtyOHOverride: c.qtyOH, openPOOverride: c.openPO }))
+  })))];
+
+  if (!allBoms.length) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:12px">No BOMs available. Create BOMs first.</span>';
+    document.getElementById('calc-results').innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = allBoms.map((bom, i) => {
+    const parentMRP = getMRPItem(bom.parentSku);
+    const maxBuild = calcMaxBuildable(bom);
+    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:200px">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent)">${esc(bom.parentSku)}</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${esc(bom.parentName || '')}</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:10px;color:var(--muted)">Build Qty:</label>
+        <input type="number" value="0" min="0" id="calc-qty-${i}" data-bom-idx="${i}"
+          style="width:60px;text-align:right;font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px"
+          oninput="runCalc()">
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:4px">Max: ${fmt(maxBuild)} | FG OH: ${fmt(parentMRP ? parentMRP.onHand : 0)}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('calc-results').innerHTML = '';
+}
+
+function calcMaxBuildable(bom) {
+  if (!bom.components || !bom.components.length) return 0;
+  return Math.min(...bom.components.map(c => {
+    const mrp = getMRPItem(c.compSku);
+    const oh = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
+    const po = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : (mrp ? mrp.openPO : 0);
+    return c.qtyPerParent > 0 ? Math.floor((oh + po) / c.qtyPerParent) : 0;
+  }));
+}
+
+function runCalc() {
+  const allBoms = [...bomList, ...eolBOMs.flatMap(b => b.fgs.map(fg => ({
+    parentSku: fg.fgCode, parentName: fg.fgName,
+    components: (fg.components || []).map(c => ({ compSku: c.compId, compName: c.compDesc, qtyPerParent: c.qtyPerFG, qtyOHOverride: c.qtyOH, openPOOverride: c.openPO }))
+  })))];
+
+  // Gather build quantities
+  const buildQtys = allBoms.map((bom, i) => {
+    const el = document.getElementById(`calc-qty-${i}`);
+    return { bom, qty: el ? +el.value || 0 : 0 };
+  }).filter(b => b.qty > 0);
+
+  if (!buildQtys.length) {
+    document.getElementById('calc-results').innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Enter build quantities above to see component consumption.</div>';
+    return;
+  }
+
+  // Aggregate component consumption across all BOMs
+  const compUsage = {};  // { compSku: { name, totalConsumed, qtyOH, openPO, remaining, sources: [{fg, qty}] } }
+  buildQtys.forEach(({ bom, qty }) => {
+    (bom.components || []).forEach(c => {
+      if (!compUsage[c.compSku]) {
+        const mrp = getMRPItem(c.compSku);
+        const oh = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
+        const po = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : (mrp ? mrp.openPO : 0);
+        compUsage[c.compSku] = { name: c.compName || (mrp ? mrp.desc : ''), totalConsumed: 0, qtyOH: oh, openPO: po, sources: [] };
+      }
+      const consumed = qty * c.qtyPerParent;
+      compUsage[c.compSku].totalConsumed += consumed;
+      compUsage[c.compSku].sources.push({ fg: bom.parentSku, qty: consumed });
+    });
+  });
+
+  // Calculate remaining
+  Object.values(compUsage).forEach(c => {
+    c.avail = c.qtyOH + c.openPO;
+    c.remaining = c.avail - c.totalConsumed;
+    c.pctUsed = c.avail > 0 ? (c.totalConsumed / c.avail * 100) : 100;
+    c.shortage = c.remaining < 0;
+  });
+
+  const comps = Object.entries(compUsage).sort((a, b) => a[1].remaining - b[1].remaining);
+  const shortages = comps.filter(([, c]) => c.shortage);
+
+  let html = '';
+  if (shortages.length) {
+    html += `<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--danger);font-weight:600">⚠ ${shortages.length} component${shortages.length > 1 ? 's' : ''} with shortage</div>`;
+  }
+
+  html += `<table class="po-table"><thead><tr>
+    <th>Component</th><th>Description</th><th style="text-align:right">Avail</th>
+    <th style="text-align:right">Consumed</th><th style="text-align:right">Remaining</th>
+    <th style="text-align:right">% Used</th><th>Status</th><th>Used By</th>
+  </tr></thead><tbody>`;
+
+  comps.forEach(([sku, c]) => {
+    const rowBg = c.shortage ? 'background:rgba(248,113,113,.06)' : c.pctUsed > 80 ? 'background:rgba(251,191,36,.04)' : '';
+    const statusLabel = c.shortage ? '<span style="color:var(--danger);font-weight:700">SHORTAGE</span>' : c.pctUsed > 80 ? '<span style="color:var(--warn)">LOW</span>' : '<span style="color:var(--ok)">OK</span>';
+    const sources = c.sources.map(s => `${s.fg}×${s.qty}`).join(', ');
+    html += `<tr style="${rowBg}">
+      <td style="font-family:var(--mono);font-size:11px">${esc(sku)}</td>
+      <td style="font-size:11px">${esc(c.name)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(c.avail)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.totalConsumed)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${c.shortage ? 'var(--danger)' : 'var(--ok)'}">${fmt(c.remaining)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${c.pctUsed.toFixed(0)}%</td>
+      <td>${statusLabel}</td>
+      <td style="font-size:10px;color:var(--muted)">${esc(sources)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+
+  document.getElementById('calc-results').innerHTML = html;
 }
 
 // ── EXPORT ISS DASHBOARD ──
 function exportISSReport() {
-  if (!eolBOMs.length) { alert('No BOMs loaded. Upload a BOM (ISS Report) first.'); return; }
+  // Use Supabase BOMs (primary) + uploaded BOMs (legacy)
+  const allBoms = [];
+
+  // Supabase BOMs → convert to FG card format
+  bomList.forEach(bom => {
+    const compCalcs = bom.components.map(c => {
+      const mrp = getMRPItem(c.compSku);
+      const qtyOH = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
+      const openPO = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : (mrp ? mrp.openPO : 0);
+      const avail = qtyOH + openPO;
+      return { maxUnits: c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0, compSku: c.compSku, qtyOH };
+    });
+    const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
+    const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
+    const parentMRP = getMRPItem(bom.parentSku);
+    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    allBoms.push({
+      name: bom.parentSku, fgs: [{
+        fgCode: bom.parentSku, fgName: bom.parentName || '', fgOH,
+        maxBuildable, totalAvailable: fgOH + maxBuildable,
+        bottleneck: bottleneck ? bottleneck.compSku : '—', bottleneckQty: bottleneck ? bottleneck.qtyOH : 0
+      }]
+    });
+  });
+
+  // Legacy uploaded BOMs
+  eolBOMs.forEach(bom => allBoms.push(bom));
+
+  if (!allBoms.length) { alert('No BOMs available. Create BOMs in the BOMs tab or upload a BOM file.'); return; }
 
   let reportHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
@@ -2426,19 +3324,13 @@ function exportISSReport() {
   .card-label{font-size:9px;color:#6b7780;text-transform:uppercase}
   .card-bn{font-size:10px;color:#6b7780;margin-top:8px}
   .status-ok{color:#2E7D32} .status-low{color:#F57C00} .status-out{color:#C62828}
-  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:24px}
-  th{background:#f0f2f3;padding:6px 8px;text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #D9D9D6}
-  td{padding:5px 8px;border-bottom:1px solid #e8e8e8}
-  .mono{font-family:'JetBrains Mono',monospace}
-  .right{text-align:right}
-  .bn{background:rgba(251,191,36,.08)}
   @media print{body{padding:20px} .no-print{display:none}}
-</style></head><body>`;
+</style></head><body>
+<h1>EOL — Available to Sell</h1>
+<div class="sub">Generated ${new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})}</div>
+<div class="cards">`;
 
-  eolBOMs.forEach(bom => {
-    reportHTML += `<h1>${esc(bom.name)} — Available to Sell</h1>
-    <div class="sub">Generated ${new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})} | Include Open PO: ${bom.includePO ? 'Yes' : 'No'}</div>
-    <div class="cards">`;
+  allBoms.forEach(bom => {
     bom.fgs.forEach(fg => {
       const sc = fg.totalAvailable <= 0 ? 'status-out' : fg.maxBuildable <= 0 ? 'status-low' : 'status-ok';
       const sl = fg.totalAvailable <= 0 ? 'OUT OF STOCK' : fg.maxBuildable <= 0 ? 'FG ONLY' : 'AVAILABLE';
@@ -2453,29 +3345,10 @@ function exportISSReport() {
         <div class="card-bn">Bottleneck: <span class="mono">${esc(fg.bottleneck)}</span> (${fmt(fg.bottleneckQty)} OH) — <span class="${sc}">${sl}</span></div>
       </div>`;
     });
-    reportHTML += '</div>';
-
-    // Component table
-    reportHTML += `<table><thead><tr><th>FG</th><th>Component ID</th><th>Description</th><th class="right">Qty/FG</th><th class="right">QTY OH</th><th class="right">Open PO</th><th class="right">Avail</th><th class="right">Max Units</th></tr></thead><tbody>`;
-    bom.fgs.forEach(fg => {
-      fg.components.forEach((c, ci) => {
-        const isBn = c.compId === fg.bottleneck;
-        reportHTML += `<tr class="${isBn?'bn':''}">
-          ${ci === 0 ? `<td rowspan="${fg.components.length}" class="mono" style="font-weight:600;vertical-align:top;border-right:1px solid #D9D9D6">${esc(fg.fgCode)}</td>` : ''}
-          <td class="mono">${esc(c.compId)}${isBn?' <span style="color:#F57C00;font-size:9px">★</span>':''}</td>
-          <td>${esc(c.compDesc)}</td>
-          <td class="right mono">${c.qtyPerFG}</td>
-          <td class="right mono">${fmt(c.qtyOH)}</td>
-          <td class="right mono">${fmt(c.openPO)}</td>
-          <td class="right mono">${fmt(c.availStock)}</td>
-          <td class="right mono" style="font-weight:600">${fmt(c.maxUnits)}</td>
-        </tr>`;
-      });
-    });
-    reportHTML += '</tbody></table>';
   });
 
-  reportHTML += `<div class="no-print" style="text-align:center;margin-top:24px"><button onclick="window.print()" style="padding:8px 24px;border:1px solid #D9D9D6;border-radius:6px;background:#fff;cursor:pointer;font-family:inherit">Print / Save PDF</button></div></body></html>`;
+  reportHTML += `</div>
+  <div class="no-print" style="text-align:center;margin-top:24px"><button onclick="window.print()" style="padding:8px 24px;border:1px solid #D9D9D6;border-radius:6px;background:#fff;cursor:pointer;font-family:inherit">Print / Save PDF</button></div></body></html>`;
 
   const w = window.open('', '_blank');
   w.document.write(reportHTML);
