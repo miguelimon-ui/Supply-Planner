@@ -2353,6 +2353,7 @@ async function loadBOMsFromSupabase() {
   const boms = await sbFetch('sp_boms?select=*,sp_bom_lines(*)&order=created_at.desc');
   bomList = (boms || []).map(b => ({
     id: b.id, parentSku: b.parent_sku, parentName: b.parent_name,
+    fgOHOverride: b.fg_oh_override,
     components: (b.sp_bom_lines || []).map(l => ({
       id: l.id, compSku: l.component_sku, compName: l.component_name,
       qtyPerParent: +l.qty_per_parent || 1,
@@ -2389,9 +2390,11 @@ function renderBOMView() {
     const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
     const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
 
-    // Parent FG on hand
+    // Parent FG on hand (override or MRP)
     const parentMRP = getMRPItem(bom.parentSku);
-    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    const mrpFGOH = parentMRP ? parentMRP.onHand : 0;
+    const fgOH = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : mrpFGOH;
+    const hasFGOverride = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined;
     const totalAvail = fgOH + maxBuildable;
 
     html += `<details style="margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
@@ -2400,16 +2403,22 @@ function renderBOMView() {
         <span style="font-size:12px;color:var(--muted)">${esc(bom.parentName || '')}</span>
         <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(0,163,225,.12);color:var(--accent);font-weight:600">${bom.components.length} components</span>
         <div style="margin-left:auto;display:flex;gap:12px;align-items:center;font-family:var(--mono);font-size:12px">
-          <span>FG: <b>${fmt(fgOH)}</b></span>
+          <span>FG: <b>${fmt(fgOH)}</b>${hasFGOverride ? `<span style="font-size:9px;color:var(--accent);margin-left:4px">MRP:${fmt(mrpFGOH)}</span>` : ''}</span>
           <span style="color:var(--accent)">Build: <b>${fmt(maxBuildable)}</b></span>
           <span style="color:var(--ok)">Total: <b>${fmt(totalAvail)}</b></span>
           ${bottleneck ? `<span style="color:var(--warn);font-size:10px">⚠ ${esc(bottleneck.compSku)}</span>` : ''}
         </div>
       </summary>
       <div style="padding:0 16px 14px">
-        <div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
           <button class="btn btn-sm" onclick="editBOM('${bom.id}')">Edit</button>
           <button class="btn btn-sm" onclick="deleteBOM('${bom.id}')" style="color:var(--danger)">Delete</button>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted)">FG On Hand:</span>
+            <input type="number" value="${fgOH}" style="width:70px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px"
+              onchange="updateFGOH('${bom.id}',this.value,${mrpFGOH})">
+            ${hasFGOverride ? `<span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpFGOH)}</span>` : ''}
+          </div>
         </div>
         <table class="po-table"><thead><tr>
           <th>Component ID</th><th>Description</th><th style="text-align:right">Qty/Parent</th>
@@ -2603,6 +2612,17 @@ async function saveBOM() {
   renderBOMView();
   // Also refresh EOL view since it uses BOMs
   renderEOLView();
+}
+
+async function updateFGOH(bomId, value, mrpValue) {
+  const numVal = value === '' ? null : +value;
+  const override = (numVal === mrpValue || numVal === null) ? null : numVal;
+  await sbFetch(`sp_boms?id=eq.${bomId}`, {
+    method: 'PATCH', write: true, prefer: 'return=minimal',
+    body: { fg_oh_override: override, updated_at: new Date().toISOString() }
+  });
+  await loadBOMsFromSupabase();
+  renderBOMView();
 }
 
 async function deleteBOM(id) {
@@ -2826,7 +2846,8 @@ function renderEOLView() {
     const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
     const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
     const parentMRP = getMRPItem(bom.parentSku);
-    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    const mrpFG = parentMRP ? parentMRP.onHand : 0;
+    const fgOH = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : mrpFG;
     allBomCards.push({
       fgCode: bom.parentSku, fgName: bom.parentName || '', fgOH,
       maxBuildable, totalAvailable: fgOH + maxBuildable,
@@ -3295,7 +3316,7 @@ function renderCalcInputs() {
           style="width:60px;text-align:right;font-family:var(--mono);font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px"
           oninput="runCalc()">
       </div>
-      <div style="font-size:9px;color:var(--muted);margin-top:4px">Max: ${fmt(maxBuild)} | FG OH: ${fmt(parentMRP ? parentMRP.onHand : 0)}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:4px">Max: ${fmt(maxBuild)} | FG OH: ${fmt(bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : (parentMRP ? parentMRP.onHand : 0))}</div>
     </div>`;
   }).join('');
 
@@ -3404,7 +3425,7 @@ function exportISSReport() {
     const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
     const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
     const parentMRP = getMRPItem(bom.parentSku);
-    const fgOH = parentMRP ? parentMRP.onHand : 0;
+    const fgOH = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : (parentMRP ? parentMRP.onHand : 0);
     allBoms.push({
       name: bom.parentSku, fgs: [{
         fgCode: bom.parentSku, fgName: bom.parentName || '', fgOH,
