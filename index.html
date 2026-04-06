@@ -2763,7 +2763,7 @@ function loadBOM(event) {
     if (existIdx >= 0) eolBOMs[existIdx] = bomEntry;
     else eolBOMs.push(bomEntry);
 
-    try { localStorage.setItem('sp_eol_boms', JSON.stringify(eolBOMs)); } catch(e) {}
+    // Legacy eolBOMs no longer persisted — BOMs live in Supabase now
     alert(`Loaded BOM "${bomName}" — ${fgs.length} finished goods, ${fgs.reduce((s,f)=>s+f.components.length,0)} component rows`);
     renderEOLView();
     event.target.value = '';
@@ -2771,9 +2771,11 @@ function loadBOM(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Restore from localStorage
+// Restore disc tracker from localStorage (legacy)
 try { eolDiscTracker = JSON.parse(localStorage.getItem('sp_eol_disc') || '[]'); } catch(e) { eolDiscTracker = []; }
-try { eolBOMs = JSON.parse(localStorage.getItem('sp_eol_boms') || '[]'); } catch(e) { eolBOMs = []; }
+// Clear legacy eolBOMs — all BOMs now live in Supabase
+try { localStorage.removeItem('sp_eol_boms'); } catch(e) {}
+eolBOMs = [];
 
 // EOL qty overrides (in-memory, saved with snapshot)
 let eolOverrides = {};  // { itemId: { qtyOH: n, openPO: n } }
