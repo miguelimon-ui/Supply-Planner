@@ -777,7 +777,9 @@ async function sbFetch(path, opts = {}) {
 // ─────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────
-const MONTHS = ['MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC','JAN','FEB'];
+// Dynamic months starting from current month
+const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const MONTHS = Array.from({length: 12}, (_, i) => MONTH_NAMES[(new Date().getMonth() + i) % 12]);
 // Default service factors matching the Master tab
 const DEFAULT_SF = [1.17, 1.17, 1.23, 1.25, 1.11, 1.21, 1.10, 1.15, 1.00, 0.91, 1.10, 1.10];
 
