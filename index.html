@@ -308,10 +308,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
 .po-sum-l{font-size:11px;color:var(--muted)}
 
 /* scrollbar */
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:var(--bg)}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+::-webkit-scrollbar{width:8px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg2);border-radius:5px}
+::-webkit-scrollbar-thumb{background:var(--muted);border-radius:5px;border:2px solid var(--bg2)}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
 
 /* ── THEME TOGGLE ── */
 .theme-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
@@ -408,6 +408,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="stat"><div class="stat-v" id="st-val">—</div><div class="stat-l">Inv Value</div></div>
     <div class="stat"><div class="stat-v" id="st-po-val">—</div><div class="stat-l">Open POs Value</div></div>
     <div class="stat"><div class="stat-v" id="st-turns" style="color:var(--muted)">—</div><div class="stat-l">Inv. Turns/Year</div></div>
+    <div class="sdiv"></div>
+    <div class="stat" id="st-filtered-wrap" style="display:none"><div class="stat-v" id="st-filtered-val" style="color:var(--accent2)">—</div><div class="stat-l" id="st-filtered-label">Filtered Value</div></div>
+    <div class="stat" id="st-filtered-po-wrap" style="display:none"><div class="stat-v" id="st-filtered-po" style="color:var(--accent2)">—</div><div class="stat-l">Filtered POs</div></div>
+    <div class="stat" id="st-filtered-turns-wrap" style="display:none"><div class="stat-v" id="st-filtered-turns" style="color:var(--accent2)">—</div><div class="stat-l">Filtered Turns</div></div>
     <div class="stats-right">
       <button class="btn btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
@@ -1251,33 +1255,45 @@ function recalcAll() {
 // STATS
 // ─────────────────────────────────────────────
 function updateStats() {
-  // Exclude no-usage items from supply plan stats
-  const selectedIS = getSelectedISPills();
-  const active = items.filter(i => {
-    if (i.status === 'no-usage') return false;
-    if (selectedIS.length > 0 && !selectedIS.includes(getIS(i.itemId))) return false;
-    return true;
-  });
-  const total = active.length;
-  const below = active.filter(i => i.status === 'BELOW').length;
-  const ok    = active.filter(i => i.status === 'OK').length;
-  const over  = active.filter(i => i.status === 'OVERSTOCK').length;
-  const val   = active.reduce((s, i) => s + i.value, 0);
-  const poVal = active.reduce((s, i) => s + i['openPO$'], 0);
-  const statusLabel = selectedIS.length > 0 ? ` (${selectedIS.map(s => IS_LABELS[s]?.label || s).join(', ')})` : '';
+  // Totals: always show all active items (excluding no-usage)
+  const allActive = items.filter(i => i.status !== 'no-usage');
+  const total = allActive.length;
+  const below = allActive.filter(i => i.status === 'BELOW').length;
+  const ok    = allActive.filter(i => i.status === 'OK').length;
+  const over  = allActive.filter(i => i.status === 'OVERSTOCK').length;
+  const val   = allActive.reduce((s, i) => s + i.value, 0);
+  const poVal = allActive.reduce((s, i) => s + i['openPO$'], 0);
+  const annualUsage = allActive.reduce((s, i) => s + (i.mau * 12 * i.stdCost), 0);
+  const turns = val > 0 ? (annualUsage / val) : 0;
+
   document.getElementById('st-total').textContent = total.toLocaleString();
   document.getElementById('st-below').textContent = below.toLocaleString();
   document.getElementById('st-ok').textContent = ok.toLocaleString();
   document.getElementById('st-over').textContent = over.toLocaleString();
   document.getElementById('st-val').textContent = '$' + (val/1000).toFixed(0) + 'k';
   document.getElementById('st-po-val').textContent = '$' + (poVal/1000).toFixed(0) + 'k';
-  // Inventory Turns = Annual Usage $ / Avg Inventory $
-  const annualUsage = active.reduce((s, i) => s + (i.mau * 12 * i.stdCost), 0);
-  const turns = val > 0 ? (annualUsage / val) : 0;
   const turnsEl = document.getElementById('st-turns');
-  if (turnsEl) {
-    turnsEl.textContent = turns.toFixed(1);
-    turnsEl.style.color = turns >= 3 ? 'var(--ok)' : turns >= 2 ? 'var(--warn)' : 'var(--danger)';
+  if (turnsEl) { turnsEl.textContent = turns.toFixed(1); turnsEl.style.color = turns >= 3 ? 'var(--ok)' : turns >= 2 ? 'var(--warn)' : 'var(--danger)'; }
+
+  // Filtered values: show when status pills filter is active
+  const selectedIS = getSelectedISPills();
+  const showFiltered = selectedIS.length > 0 && selectedIS.length < Object.keys(IS_LABELS).length;
+  ['st-filtered-wrap','st-filtered-po-wrap','st-filtered-turns-wrap'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = showFiltered ? '' : 'none';
+  });
+  if (showFiltered) {
+    const fItems = allActive.filter(i => selectedIS.includes(getIS(i.itemId)));
+    const fVal = fItems.reduce((s, i) => s + i.value, 0);
+    const fPO = fItems.reduce((s, i) => s + i['openPO$'], 0);
+    const fAnnual = fItems.reduce((s, i) => s + (i.mau * 12 * i.stdCost), 0);
+    const fTurns = fVal > 0 ? (fAnnual / fVal) : 0;
+    const label = selectedIS.map(s => IS_LABELS[s]?.label || s).join(', ');
+    document.getElementById('st-filtered-val').textContent = '$' + (fVal/1000).toFixed(0) + 'k';
+    document.getElementById('st-filtered-label').textContent = label + ' Value';
+    document.getElementById('st-filtered-po').textContent = '$' + (fPO/1000).toFixed(0) + 'k';
+    const ftEl = document.getElementById('st-filtered-turns');
+    if (ftEl) { ftEl.textContent = fTurns.toFixed(1); ftEl.style.color = fTurns >= 3 ? 'var(--ok)' : fTurns >= 2 ? 'var(--warn)' : 'var(--danger)'; }
   }
 }
 
@@ -3212,95 +3228,163 @@ async function loadTrendData() {
   });
   html += '</tbody></table></div></details></div>';
 
-  // ── CUSTOM ITEM TREND CHARTS ──
+  // ── CUSTOM WATCHLISTS ──
+  const allItemsList = [...allItems].sort();
   html += `<div style="margin-top:24px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <span style="font-size:15px;font-weight:700;color:var(--text)">Item Trends</span>
-      <select id="add-trend-select" style="font-size:11px;width:250px">
-        <option value="">— Add item trend —</option>
-        ${[...allItems].sort().map(id => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}
-      </select>
-      <button class="btn btn-sm" onclick="addItemTrend()">Add</button>
+      <span style="font-size:15px;font-weight:700;color:var(--text)">Watchlists</span>
+      <button class="btn btn-sm btn-accent" onclick="addWatchlist()">+ New Watchlist</button>
     </div>
-    <div id="custom-trends">${renderCustomTrends(byDate, dates)}</div>
+    <div id="watchlists-container">${renderWatchlists(byDate, dates, allItemsList)}</div>
   </div>`;
 
   section.innerHTML = html;
 }
 
-let customTrendItems = [];
-try { customTrendItems = JSON.parse(localStorage.getItem('sp_custom_trends') || '[]'); } catch(e) { customTrendItems = []; }
+// Watchlists: array of { name, items: [itemId] }
+let watchlists = [];
+try { watchlists = JSON.parse(localStorage.getItem('sp_watchlists') || '[]'); } catch(e) { watchlists = []; }
+function saveWatchlists() { try { localStorage.setItem('sp_watchlists', JSON.stringify(watchlists)); } catch(e) {} }
 
-function addItemTrend() {
-  const sel = document.getElementById('add-trend-select');
+function addWatchlist() {
+  const name = prompt('Watchlist name:', `Watchlist ${watchlists.length + 1}`);
+  if (!name) return;
+  watchlists.push({ name, items: [] });
+  saveWatchlists();
+  renderEOLView();
+}
+
+function deleteWatchlist(idx) {
+  if (!confirm(`Delete watchlist "${watchlists[idx].name}"?`)) return;
+  watchlists.splice(idx, 1);
+  saveWatchlists();
+  renderEOLView();
+}
+
+function addToWatchlist(wIdx) {
+  const sel = document.getElementById(`wl-add-${wIdx}`);
   const itemId = sel.value;
-  if (!itemId || customTrendItems.includes(itemId)) return;
-  customTrendItems.push(itemId);
-  localStorage.setItem('sp_custom_trends', JSON.stringify(customTrendItems));
+  if (!itemId || watchlists[wIdx].items.includes(itemId)) return;
+  watchlists[wIdx].items.push(itemId);
+  saveWatchlists();
   renderEOLView();
 }
 
-function removeItemTrend(itemId) {
-  customTrendItems = customTrendItems.filter(id => id !== itemId);
-  localStorage.setItem('sp_custom_trends', JSON.stringify(customTrendItems));
+function removeFromWatchlist(wIdx, itemId) {
+  watchlists[wIdx].items = watchlists[wIdx].items.filter(id => id !== itemId);
+  saveWatchlists();
   renderEOLView();
 }
 
-function renderCustomTrends(byDate, dates) {
-  if (!customTrendItems.length || !dates.length) return '<div style="color:var(--muted);font-size:12px">Select items above to add individual trend charts.</div>';
+function toggleWatchlistItem(wIdx, itemId, checked) {
+  // Toggle: unchecked items stay in list but are excluded from the trend
+  if (!watchlists[wIdx].excluded) watchlists[wIdx].excluded = {};
+  if (checked) delete watchlists[wIdx].excluded[itemId];
+  else watchlists[wIdx].excluded[itemId] = true;
+  saveWatchlists();
+  renderEOLView();
+}
 
-  return customTrendItems.map(itemId => {
-    const mrp = getMRPItem(itemId);
-    const desc = mrp ? mrp.desc : '';
-    const stdCost = mrp ? mrp.stdCost : 0;
-    const vals = dates.map(d => byDate[d] && byDate[d][itemId] ? +byDate[d][itemId].qty_on_hand : null);
-    const validPts = vals.map((v, i) => v !== null ? { i, v } : null).filter(Boolean);
-    if (!validPts.length) return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
-      <span style="font-family:var(--mono);font-weight:600;color:var(--accent)">${esc(itemId)}</span> <span style="color:var(--muted);font-size:11px">${esc(desc)}</span> — No snapshot data
-      <span onclick="removeItemTrend('${esc(itemId)}')" style="cursor:pointer;color:var(--danger);float:right">✕</span>
-    </div>`;
+function renderWatchlists(byDate, dates, allItemsList) {
+  if (!watchlists.length) return '<div style="color:var(--muted);font-size:12px">Click "+ New Watchlist" to create a group of items to track over time.</div>';
 
-    const maxV = Math.max(...validPts.map(p => p.v), 1);
-    const minV = Math.min(...validPts.map(p => p.v)) * 0.9;
-    const chartW = Math.max(300, dates.length * 70);
-    const chartH = 100;
-    const pL = 50, pR = 10, pT = 10, pB = 20;
-    const pW = chartW - pL - pR, pH = chartH - pT - pB;
+  return watchlists.map((wl, wIdx) => {
+    const excluded = wl.excluded || {};
+    const activeItems = wl.items.filter(id => !excluded[id]);
 
-    const svgPts = validPts.map((p, idx) => {
-      const x = pL + (validPts.length > 1 ? idx / (validPts.length - 1) * pW : pW / 2);
-      const y = pT + pH - ((p.v - minV) / (maxV - minV || 1) * pH);
-      return { x, y, v: p.v, label: new Date(dates[p.i] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+    // Compute totals per date for active items
+    const wlTotals = dates.map(d => {
+      let totalUnits = 0, totalDollar = 0, count = 0;
+      activeItems.forEach(id => {
+        if (byDate[d] && byDate[d][id]) {
+          const s = byDate[d][id];
+          totalUnits += +s.qty_on_hand || 0;
+          totalDollar += +s.dollar_oh || 0;
+          count++;
+        }
+      });
+      return count > 0 ? { totalUnits, totalDollar, count } : null;
     });
-    const linePath = svgPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const areaPath = linePath + ` L${svgPts[svgPts.length-1].x.toFixed(1)},${pT+pH} L${svgPts[0].x.toFixed(1)},${pT+pH} Z`;
+    const validTotals = wlTotals.map((t, i) => t ? { ...t, i } : null).filter(Boolean);
 
-    const firstV = validPts[0].v;
-    const lastV = validPts[validPts.length-1].v;
-    const change = lastV - firstV;
-    const changePct = firstV > 0 ? ((change / firstV) * 100).toFixed(0) : 0;
-    const changeColor = change < 0 ? 'var(--ok)' : change > 0 ? 'var(--danger)' : 'var(--muted)';
+    // SVG line chart for this watchlist
+    let chartHtml = '';
+    if (validTotals.length > 1) {
+      const maxD = Math.max(...validTotals.map(t => t.totalDollar), 1);
+      const minD = Math.min(...validTotals.map(t => t.totalDollar)) * 0.9;
+      const cW = Math.max(300, validTotals.length * 70), cH = 100;
+      const pL = 55, pR = 10, pT = 10, pB = 20, pW = cW - pL - pR, pH = cH - pT - pB;
+      const pts = validTotals.map((t, idx) => {
+        const x = pL + (validTotals.length > 1 ? idx / (validTotals.length - 1) * pW : pW / 2);
+        const y = pT + pH - ((t.totalDollar - minD) / (maxD - minD || 1) * pH);
+        return { x, y, ...t, label: new Date(dates[t.i] + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+      });
+      const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const area = line + ` L${pts[pts.length-1].x.toFixed(1)},${pT+pH} L${pts[0].x.toFixed(1)},${pT+pH} Z`;
+      chartHtml = `<div style="overflow-x:auto;margin-bottom:8px"><svg width="${cW}" height="${cH}" style="font-family:var(--mono)">
+        <path d="${area}" fill="var(--accent)" opacity="0.08"/>
+        <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+        ${pts.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
+          <text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)-8}" text-anchor="middle" fill="var(--text)" font-size="9" font-weight="600">$${fmtK(p.totalDollar)}</text>
+          <text x="${p.x.toFixed(1)}" y="${pT+pH+14}" text-anchor="middle" fill="var(--muted)" font-size="8">${p.label}</text>`).join('')}
+      </svg></div>`;
+    }
 
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <span style="font-family:var(--mono);font-weight:600;color:var(--accent)">${esc(itemId)}</span>
-        <span style="color:var(--muted);font-size:11px">${esc(desc)}</span>
-        <span style="margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:${changeColor}">${change >= 0 ? '+' : ''}${fmt(change)} units (${changePct}%)</span>
-        <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">$${fmtK(lastV * stdCost)}</span>
-        <span onclick="removeItemTrend('${esc(itemId)}')" style="cursor:pointer;color:var(--danger);font-size:14px" title="Remove">✕</span>
+    // Item table
+    let tableHtml = '';
+    if (wl.items.length) {
+      tableHtml = `<div style="overflow-x:auto"><table class="po-table" style="min-width:800px"><thead><tr>
+        <th style="width:30px"></th><th>Item ID</th><th>Description</th>`;
+      dates.forEach(d => {
+        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        tableHtml += `<th style="text-align:right;min-width:70px">${label}</th>`;
+      });
+      tableHtml += `<th style="text-align:right">Change</th><th style="width:30px"></th></tr></thead><tbody>`;
+      wl.items.forEach(itemId => {
+        const isExcluded = !!excluded[itemId];
+        const mrp = getMRPItem(itemId);
+        const vals = dates.map(d => byDate[d] && byDate[d][itemId] ? +byDate[d][itemId].qty_on_hand : null);
+        const first = vals.find(v => v !== null);
+        const last = [...vals].reverse().find(v => v !== null);
+        const change = first !== null && last !== null ? last - first : null;
+        const cc = change === null ? 'var(--muted)' : change < 0 ? 'var(--ok)' : change > 0 ? 'var(--danger)' : 'var(--muted)';
+        tableHtml += `<tr style="${isExcluded ? 'opacity:.35' : ''}">
+          <td><input type="checkbox" ${isExcluded ? '' : 'checked'} onchange="toggleWatchlistItem(${wIdx},'${esc(itemId)}',this.checked)"></td>
+          <td style="font-family:var(--mono);font-size:11px">${esc(itemId)}</td>
+          <td style="font-size:10px">${esc(mrp ? mrp.desc : '')}</td>`;
+        vals.forEach((v, vi) => {
+          const prev = vi > 0 ? vals[vi-1] : v;
+          const c = v === null ? '' : (prev !== null && v < prev ? 'color:var(--ok)' : prev !== null && v > prev ? 'color:var(--danger)' : '');
+          tableHtml += `<td style="text-align:right;font-family:var(--mono);font-size:11px;${c}">${v !== null ? fmt(v) : '—'}</td>`;
+        });
+        tableHtml += `<td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${cc}">${change !== null ? (change >= 0 ? '+' : '') + fmt(change) : '—'}</td>`;
+        tableHtml += `<td><span onclick="removeFromWatchlist(${wIdx},'${esc(itemId)}')" style="cursor:pointer;color:var(--danger);font-size:12px">✕</span></td></tr>`;
+      });
+      tableHtml += '</tbody></table></div>';
+    }
+
+    const totalChange = validTotals.length >= 2 ? validTotals[validTotals.length-1].totalDollar - validTotals[0].totalDollar : null;
+    const tcColor = totalChange === null ? 'var(--muted)' : totalChange < 0 ? 'var(--ok)' : 'var(--danger)';
+
+    return `<details open style="margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <summary style="padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:10px">
+        <span style="font-weight:600;font-size:13px">${esc(wl.name)}</span>
+        <span style="font-size:10px;color:var(--muted)">${activeItems.length}/${wl.items.length} items</span>
+        ${totalChange !== null ? `<span style="margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:${tcColor}">${totalChange >= 0 ? '+' : ''}$${fmtK(totalChange)}</span>` : ''}
+      </summary>
+      <div style="padding:0 16px 12px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <select id="wl-add-${wIdx}" style="font-size:11px;width:250px">
+            <option value="">— Add item —</option>
+            ${allItemsList.map(id => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm" onclick="addToWatchlist(${wIdx})">Add</button>
+          <button class="btn btn-sm" onclick="deleteWatchlist(${wIdx})" style="margin-left:auto;color:var(--danger);font-size:10px">Delete Watchlist</button>
+        </div>
+        ${chartHtml}
+        ${tableHtml}
       </div>
-      <div style="overflow-x:auto">
-        <svg width="${chartW}" height="${chartH}" style="font-family:var(--mono)">
-          <path d="${areaPath}" fill="var(--accent)" opacity="0.08"/>
-          <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
-          ${svgPts.map(p => `
-            <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="var(--accent)" stroke="var(--bg)" stroke-width="1.5"/>
-            <text x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)-8}" text-anchor="middle" fill="var(--text)" font-size="9" font-weight="600">${fmt(p.v)}</text>
-            <text x="${p.x.toFixed(1)}" y="${pT+pH+14}" text-anchor="middle" fill="var(--muted)" font-size="8">${p.label}</text>
-          `).join('')}
-        </svg>
-      </div>
-    </div>`;
+    </details>`;
   }).join('');
 }
 
