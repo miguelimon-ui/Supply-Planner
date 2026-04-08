@@ -2951,7 +2951,7 @@ function renderEOLView() {
         <span style="font-size:15px;font-weight:700;color:var(--text)">Discontinuation Tracker</span>
         <span style="font-size:11px;color:var(--muted)">${visibleItems.length}/${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
       </div>`;
-    html += `<table class="po-table"><thead><tr>
+    html += `<div style="overflow-x:auto"><table class="po-table" style="min-width:1200px"><thead><tr>
       <th style="width:30px"><input type="checkbox" checked onchange="toggleAllEOLExclude(this.checked)" title="Include/exclude all"></th>
       <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th><th>Target Date</th>
       <th style="text-align:right">Std Cost</th><th style="text-align:right">MAU</th>
@@ -2995,7 +2995,7 @@ function renderEOLView() {
         <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${mohColor}">${mohVal !== null ? mohVal.toFixed(1) : 'N/A'}</td>
       </tr>`;
     });
-    html += '</tbody></table></div>';
+    html += '</tbody></table></div></div>';
   }
 
   // ── SECTION 3: TREND (from snapshots) ──
