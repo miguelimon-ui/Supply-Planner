@@ -286,7 +286,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
 .po-table{width:100%;border-collapse:collapse;font-size:11px}
 .po-table th{background:var(--bg3);padding:6px 10px;text-align:left;font-family:var(--mono);font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);white-space:nowrap}
 .po-table th.mo-th{text-align:right;min-width:64px;border-left:1px solid var(--border)}
-.po-table td{padding:5px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.po-table td{padding:5px 10px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
 .po-table td.mo-td{text-align:right;border-left:1px solid var(--border);font-family:var(--mono);font-size:11px}
 .po-table tr:last-child td{border-bottom:none}
 .po-cell{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
@@ -2996,9 +2996,9 @@ function renderEOLView() {
         <span style="font-size:15px;font-weight:700;color:var(--text)">Discontinuation Tracker</span>
         <span style="font-size:11px;color:var(--muted)">${visibleItems.length}/${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
       </div>`;
-    html += `<div style="overflow-x:auto"><table class="po-table" style="min-width:1600px"><thead><tr>
+    html += `<div style="overflow-x:auto"><table class="po-table"><thead><tr>
       <th style="width:30px"><input type="checkbox" checked onchange="toggleAllEOLExclude(this.checked)" title="Include/exclude all"></th>
-      <th style="min-width:120px">Item ID</th><th style="min-width:250px">Description</th><th>Family</th><th style="min-width:180px">Supplier</th><th>Status</th><th>Target Date</th>
+      <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th><th>Target Date</th>
       <th style="text-align:right">Std Cost</th><th style="text-align:right">MAU</th>
       <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
       <th style="text-align:right">$ OH</th><th style="text-align:right">Months OH</th>
