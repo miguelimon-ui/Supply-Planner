@@ -2996,9 +2996,9 @@ function renderEOLView() {
         <span style="font-size:15px;font-weight:700;color:var(--text)">Discontinuation Tracker</span>
         <span style="font-size:11px;color:var(--muted)">${visibleItems.length}/${eolItems.length} items — $${fmtK(totalDollarOH)} total value</span>
       </div>`;
-    html += `<div style="overflow-x:auto"><table class="po-table" style="min-width:1200px"><thead><tr>
+    html += `<div style="overflow-x:auto"><table class="po-table" style="min-width:1600px"><thead><tr>
       <th style="width:30px"><input type="checkbox" checked onchange="toggleAllEOLExclude(this.checked)" title="Include/exclude all"></th>
-      <th>Item ID</th><th>Description</th><th>Family</th><th>Supplier</th><th>Status</th><th>Target Date</th>
+      <th style="min-width:120px">Item ID</th><th style="min-width:250px">Description</th><th>Family</th><th style="min-width:180px">Supplier</th><th>Status</th><th>Target Date</th>
       <th style="text-align:right">Std Cost</th><th style="text-align:right">MAU</th>
       <th style="text-align:right">Units OH</th><th style="text-align:right">Open PO</th>
       <th style="text-align:right">$ OH</th><th style="text-align:right">Months OH</th>
