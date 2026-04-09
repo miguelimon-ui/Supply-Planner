@@ -405,6 +405,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="stat stat-ok"><div class="stat-v" id="st-ok">—</div><div class="stat-l">OK</div></div>
     <div class="stat stat-over"><div class="stat-v" id="st-over">—</div><div class="stat-l">Overstock</div></div>
     <div class="sdiv"></div>
+    <div class="stat"><div class="stat-v" id="st-total-val" style="color:var(--muted)">—</div><div class="stat-l">Total Inv (all)</div></div>
     <div class="stat"><div class="stat-v" id="st-val">—</div><div class="stat-l">Inv Value</div></div>
     <div class="stat"><div class="stat-v" id="st-po-val">—</div><div class="stat-l">Open POs Value</div></div>
     <div class="stat"><div class="stat-v" id="st-turns" style="color:var(--muted)">—</div><div class="stat-l">Inv. Turns/Year</div></div>
@@ -1256,6 +1257,10 @@ function recalcAll() {
 // ─────────────────────────────────────────────
 function updateStats() {
   // Totals: always show all active items (excluding no-usage)
+  // Total inventory value across ALL items (including no-usage / MAU=0)
+  const totalAllVal = items.reduce((s, i) => s + i.value, 0);
+  document.getElementById('st-total-val').textContent = '$' + (totalAllVal/1000).toFixed(0) + 'k';
+
   const allActive = items.filter(i => i.status !== 'no-usage');
   const total = allActive.length;
   const below = allActive.filter(i => i.status === 'BELOW').length;
