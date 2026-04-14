@@ -843,9 +843,15 @@ function getIS(itemId) {
   return itemStatus[itemId] || 'active';
 }
 function setIS(itemId, status) {
-  if (status === 'active') delete itemStatus[itemId]; // active is default, no need to store
+  if (status === 'active') delete itemStatus[itemId];
   else itemStatus[itemId] = status;
   saveIS();
+  // Sync to Supabase immediately
+  sbFetch('sp_item_status', {
+    method: 'POST', write: true,
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: [{ item_id: itemId, status: status, updated_at: new Date().toISOString() }]
+  }).catch(e => console.warn('Failed to sync status:', e));
 }
 loadIS();
 
@@ -2262,6 +2268,11 @@ function loadTargetDates() {
 function setTargetDate(itemId, date) {
   if (date) targetDates[itemId] = date; else delete targetDates[itemId];
   saveTargetDates();
+  sbFetch('sp_item_status', {
+    method: 'POST', write: true,
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: [{ item_id: itemId, target_date: date || null, updated_at: new Date().toISOString() }]
+  }).catch(e => console.warn('Failed to sync target date:', e));
 }
 loadTargetDates();
 
@@ -2355,13 +2366,28 @@ function setISAndRefresh(itemId, status, selectEl) {
   applyFilters();
 }
 
-function bulkSetStatus() {
+async function bulkSetStatus() {
   const supp   = document.getElementById('is-bulk-supplier').value;
   const status = document.getElementById('is-bulk-status').value;
   if (!supp) { alert('Select a supplier first'); return; }
-  const count = rawItems.filter(i => i.suppName === supp).length;
-  if (!confirm(`Change ${count} items from "${supp}" to "${IS_LABELS[status].label}"?`)) return;
-  rawItems.filter(i => i.suppName === supp).forEach(i => setIS(i.itemId, status));
+  const affected = rawItems.filter(i => i.suppName === supp);
+  if (!confirm(`Change ${affected.length} items from "${supp}" to "${IS_LABELS[status].label}"?`)) return;
+  // Update locally
+  affected.forEach(i => {
+    if (status === 'active') delete itemStatus[i.itemId];
+    else itemStatus[i.itemId] = status;
+  });
+  saveIS();
+  // Batch sync to Supabase
+  const rows = affected.map(i => ({ item_id: i.itemId, status, updated_at: new Date().toISOString() }));
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await sbFetch('sp_item_status', {
+      method: 'POST', write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: rows.slice(i, i + CHUNK)
+    });
+  }
   renderISView();
   applyFilters();
 }
