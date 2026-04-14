@@ -166,6 +166,7 @@ td{padding:6px 10px;vertical-align:middle;white-space:nowrap}
 .is-status-select.to_be_discontinued{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.06);color:var(--warn)}
 .is-status-select.eol{border-color:rgba(232,121,249,.4);background:rgba(232,121,249,.06);color:#e879f9}
 .is-status-select.non_plan{border-color:rgba(148,163,184,.4);background:rgba(148,163,184,.06);color:#94a3b8}
+.is-status-select.consume_first{border-color:rgba(251,146,60,.4);background:rgba(251,146,60,.06);color:#fb923c}
 .is-status-select.discontinued{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.06);color:var(--danger)}
 .is-status-select.custom{border-color:rgba(79,142,247,.4);background:rgba(79,142,247,.06);color:var(--accent2)}
 /* Item status filter pills */
@@ -175,6 +176,7 @@ td{padding:6px 10px;vertical-align:middle;white-space:nowrap}
 .is-pill.selected.tbd-pill{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--warn)}
 .is-pill.selected.eol-pill{background:rgba(232,121,249,.12);border-color:rgba(232,121,249,.5);color:#e879f9}
 .is-pill.selected.nonplan-pill{background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.5);color:#94a3b8}
+.is-pill.selected.cf-pill{background:rgba(251,146,60,.12);border-color:rgba(251,146,60,.5);color:#fb923c}
 .is-pill.selected.disc-pill{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.5);color:var(--danger)}
 .is-pill.selected.custom-pill{background:rgba(79,142,247,.12);border-color:rgba(79,142,247,.5);color:var(--accent2)}
 /* Row left-border by item lifecycle status */
@@ -369,6 +371,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-po" onclick="switchTab('po')"><span class="tab-icon">📊</span> PO Analysis by Supplier</div>
     <div class="tab" id="tab-lt" onclick="switchTab('lt')"><span class="tab-icon">⏱</span> Lead Times</div>
     <div class="tab" id="tab-is" onclick="switchTab('is')"><span class="tab-icon">🏷</span> Item Status</div>
+    <div class="tab" id="tab-health" onclick="switchTab('health')"><span class="tab-icon">🏥</span> Inv. Health</div>
     <div class="tab" id="tab-bom" onclick="switchTab('bom')"><span class="tab-icon">🧱</span> BOMs</div>
     <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
   </div>
@@ -390,6 +393,12 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div class="sf-item">
         <div class="sf-label" style="color:var(--overst)">OS×</div>
         <input class="sf-input sf-sep-input" type="number" id="os-mult" value="5" min="0" step="0.5" style="width:42px" onchange="saveSSOS()">
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div class="sf-item">
+        <div class="sf-label" style="color:var(--danger)">HOLD</div>
+        <input class="sf-input sf-sep-input" type="number" id="hold-threshold" value="6" min="0" step="1" style="width:42px" onchange="saveSSOS()" title="Block PO suggestions when item has more than X months OH">
       </div>
     </div>
     <div class="apply-btn-wrap">
@@ -452,6 +461,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <button class="is-pill tbd-pill selected"       onclick="toggleISPill('to_be_discontinued',this)" data-is="to_be_discontinued">To Be Disc.</button>
       <button class="is-pill eol-pill selected"        onclick="toggleISPill('eol',this)"                data-is="eol">EOL</button>
       <button class="is-pill nonplan-pill"            onclick="toggleISPill('non_plan',this)"           data-is="non_plan">Non-Plan</button>
+      <button class="is-pill cf-pill"                 onclick="toggleISPill('consume_first',this)"      data-is="consume_first">Consume First</button>
       <button class="is-pill disc-pill"               onclick="toggleISPill('discontinued',this)"       data-is="discontinued">Discontinued</button>
       <button class="is-pill custom-pill"             onclick="toggleISPill('custom',this)"             data-is="custom">Custom</button>
     </div>
@@ -560,6 +570,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="to_be_discontinued">To Be Discontinued</option>
         <option value="eol">EOL</option>
         <option value="non_plan">Non-Plan</option>
+        <option value="consume_first">Consume First</option>
         <option value="discontinued">Discontinued</option>
         <option value="custom">Custom</option>
       </select>
@@ -589,6 +600,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div class="stat"><div class="stat-v" id="is-cnt-tbd" style="color:var(--warn)">—</div><div class="stat-l">To Be Discontinued</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-eol" style="color:#e879f9">—</div><div class="stat-l">EOL</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-nonplan" style="color:#94a3b8">—</div><div class="stat-l">Non-Plan</div></div>
+      <div class="stat"><div class="stat-v" id="is-cnt-cf" style="color:#fb923c">—</div><div class="stat-l">Consume First</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-disc" style="color:var(--danger)">—</div><div class="stat-l">Discontinued</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-custom" style="color:var(--accent2)">—</div><div class="stat-l">Custom</div></div>
     </div>
@@ -610,6 +622,11 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <tbody id="is-body"></tbody>
       </table>
     </div>
+  </div>
+
+  <!-- INVENTORY HEALTH VIEW -->
+  <div id="health-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:auto">
+    <div id="health-content" style="padding:20px"></div>
   </div>
 
   <!-- BOM VIEW -->
@@ -1177,15 +1194,19 @@ function getSF() {
 }
 function getSSMult() { return parseFloat(document.getElementById('ss-mult').value) || 3; }
 function getOSMult() { return parseFloat(document.getElementById('os-mult').value) || 5; }
+function getHoldThreshold() { return parseFloat(document.getElementById('hold-threshold').value) || 6; }
 function saveSSOS() {
   localStorage.setItem('sp_ss_mult', document.getElementById('ss-mult').value);
   localStorage.setItem('sp_os_mult', document.getElementById('os-mult').value);
+  localStorage.setItem('sp_hold_threshold', document.getElementById('hold-threshold').value);
 }
 function loadSSOS() {
   const ss = localStorage.getItem('sp_ss_mult');
   const os = localStorage.getItem('sp_os_mult');
+  const hold = localStorage.getItem('sp_hold_threshold');
   if (ss) document.getElementById('ss-mult').value = ss;
   if (os) document.getElementById('os-mult').value = os;
+  if (hold) document.getElementById('hold-threshold').value = hold;
 }
 
 // ─────────────────────────────────────────────
@@ -1254,10 +1275,18 @@ function recalcAll() {
     const moh = mau > 0 ? raw.onHand / mau : null;
     const mohwpo = mau > 0 ? (raw.onHand + raw.openPO) / mau : null;
 
+    // Inventory reduction flags
+    const holdThreshold = getHoldThreshold();
+    const isConsumeFirst = getIS(raw.itemId) === 'consume_first';
+    const isOnHold = mohwpo !== null && mohwpo > holdThreshold && !isConsumeFirst;
+    // PO Review: item has >holdThreshold months AND incoming ERP POs
+    const totalErpPO = raw.erpPOs.reduce((s, p) => s + p, 0);
+    const poReview = mohwpo !== null && mohwpo > holdThreshold * 0.8 && totalErpPO > 0;
+
     // Auto-suggested POs: cascading second pass
     const moq = itemMOQs[raw.itemId] || 0;
     const suggested = [];
-    const moqAdjusted = [];  // true if suggestion was rounded up to MOQ
+    const moqAdjusted = [];
     let bbCascade = raw.onHand;
     for (let i = 0; i < 12; i++) {
       const erpPO    = raw.erpPOs[i] || 0;
@@ -1265,12 +1294,14 @@ function recalcAll() {
       const bbAfter  = Math.round(bbCascade + erpPO + manualPO - pmu[i]);
       let sugg = 0;
       let wasMoqAdj = false;
-      if (mau > 0 && mau !== 999 && bbAfter < ss[i]) {
+      // Block suggestions for HOLD items and Consume First items
+      if (isOnHold || isConsumeFirst) {
+        sugg = 0;
+      } else if (mau > 0 && mau !== 999 && bbAfter < ss[i]) {
         if (monthZeroed[i] && manualPO === 0) {
           sugg = 0;
         } else {
           sugg = Math.max(0, Math.ceil(ss[i] - bbAfter));
-          // Apply MOQ: round up to nearest multiple of MOQ
           if (moq > 1 && sugg > 0 && sugg < moq) {
             wasMoqAdj = true;
             sugg = moq;
@@ -1294,7 +1325,7 @@ function recalcAll() {
     }
 
     const lt = getLT(raw);
-    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, moqAdjusted, moq, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none' };
+    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, moqAdjusted, moq, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none', isOnHold, isConsumeFirst, poReview };
   });
 
   updateStats();
@@ -1558,6 +1589,9 @@ function renderTable() {
     return `<tr class="${rowClass} ${isClass}" data-id="${esc(item.itemId)}" onclick="openPanel('${esc(item.itemId)}')">
       <td style="min-width:90px">
         ${badgeMap[item.status] || ''}
+        ${item.isOnHold ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.35);color:var(--danger);margin-left:2px" title="PO suggestions blocked — item has >' + getHoldThreshold() + ' months OH">⛔ HOLD</span>' : ''}
+        ${item.poReview ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);color:var(--warn);margin-left:2px" title="Review: ERP POs incoming but item already has high inventory">⚠ REVIEW</span>' : ''}
+        ${item.isConsumeFirst ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(251,146,60,.15);border:1px solid rgba(251,146,60,.35);color:#fb923c;margin-left:2px" title="Consume First — no PO suggestions">🔸 CONSUME</span>' : ''}
         ${dfBadge}
         ${item.pastDuePO > 0 && item.status === 'BELOW'
           ? `<span title="Past-due PO: ${fmt(item.pastDuePO)} ${item.uom} — review before ordering" style="cursor:help;margin-left:4px;font-size:11px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);border-radius:4px;padding:1px 5px;color:var(--warn);font-weight:700">⚠ PO ${fmt(item.pastDuePO)}</span>`
@@ -1825,18 +1859,20 @@ function exportCSV() {
 // TAB SWITCHING
 // ─────────────────────────────────────────────
 function switchTab(tab) {
-  ['plan','po','lt','is','bom','eol'].forEach(t => {
+  ['plan','po','lt','is','health','bom','eol'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
   });
-  document.getElementById('plan-view').style.display = tab === 'plan' ? 'flex' : 'none';
-  document.getElementById('po-view').style.display   = tab === 'po'   ? 'flex' : 'none';
-  document.getElementById('lt-view').style.display   = tab === 'lt'   ? 'flex' : 'none';
-  document.getElementById('is-view').style.display   = tab === 'is'   ? 'flex' : 'none';
-  document.getElementById('bom-view').style.display  = tab === 'bom'  ? 'flex' : 'none';
-  document.getElementById('eol-view').style.display  = tab === 'eol'  ? 'flex' : 'none';
+  document.getElementById('plan-view').style.display   = tab === 'plan'   ? 'flex' : 'none';
+  document.getElementById('po-view').style.display     = tab === 'po'     ? 'flex' : 'none';
+  document.getElementById('lt-view').style.display     = tab === 'lt'     ? 'flex' : 'none';
+  document.getElementById('is-view').style.display     = tab === 'is'     ? 'flex' : 'none';
+  document.getElementById('health-view').style.display = tab === 'health' ? 'flex' : 'none';
+  document.getElementById('bom-view').style.display    = tab === 'bom'    ? 'flex' : 'none';
+  document.getElementById('eol-view').style.display    = tab === 'eol'    ? 'flex' : 'none';
   if (tab === 'po') renderPOView();
   if (tab === 'lt') renderLTView();
   if (tab === 'is') renderISView();
+  if (tab === 'health') renderHealthView();
   if (tab === 'bom') renderBOMView();
   if (tab === 'eol') renderEOLView();
 }
@@ -2257,6 +2293,7 @@ const IS_LABELS = {
   to_be_discontinued: { label: 'To Be Discontinued', color: 'var(--warn)'   },
   eol:                { label: 'EOL',                color: '#e879f9'       },
   non_plan:           { label: 'Non-Plan',           color: '#94a3b8'      },
+  consume_first:      { label: 'Consume First',      color: '#fb923c'      },
   discontinued:       { label: 'Discontinued',        color: 'var(--danger)' },
   custom:             { label: 'Custom',              color: 'var(--accent2)'},
 };
@@ -2312,6 +2349,7 @@ function renderISView() {
     document.getElementById('is-cnt-tbd').textContent     = rawItems.filter(i => getIS(i.itemId) === 'to_be_discontinued').length;
     document.getElementById('is-cnt-eol').textContent     = rawItems.filter(i => getIS(i.itemId) === 'eol').length;
     document.getElementById('is-cnt-nonplan').textContent  = rawItems.filter(i => getIS(i.itemId) === 'non_plan').length;
+    document.getElementById('is-cnt-cf').textContent       = rawItems.filter(i => getIS(i.itemId) === 'consume_first').length;
     document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
     document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
   }
@@ -2347,6 +2385,7 @@ function renderISView() {
           <option value="to_be_discontinued" ${is==='to_be_discontinued'?'selected':''}>To Be Discontinued</option>
           <option value="eol"                ${is==='eol'?'selected':''}>EOL</option>
           <option value="non_plan"           ${is==='non_plan'?'selected':''}>Non-Plan</option>
+          <option value="consume_first"      ${is==='consume_first'?'selected':''}>Consume First</option>
           <option value="discontinued"       ${is==='discontinued'?'selected':''}>Discontinued</option>
           <option value="custom"             ${is==='custom'?'selected':''}>Custom</option>
         </select>
@@ -2456,6 +2495,196 @@ function importISCSV(event) {
     event.target.value = ''; // reset file input
   };
   reader.readAsText(file);
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY HEALTH TAB
+// ─────────────────────────────────────────────
+function renderHealthView() {
+  if (!items.length) return;
+  const container = document.getElementById('health-content');
+  const holdT = getHoldThreshold();
+
+  const allItems = items;
+  const active = allItems.filter(i => i.status !== 'no-usage');
+  const totalVal = allItems.reduce((s, i) => s + i.value, 0);
+  const totalPO = allItems.reduce((s, i) => s + i['openPO$'], 0);
+  const annualUsage = allItems.reduce((s, i) => s + (i.mau * 12 * i.stdCost), 0);
+  const turns = totalVal > 0 ? annualUsage / totalVal : 0;
+  const targetTurns = 3;
+  const targetVal = annualUsage / targetTurns;
+  const gap = totalVal - targetVal;
+
+  // Categories
+  const overstock = allItems.filter(i => i.mohwpo !== null && i.mohwpo > holdT && i.status !== 'no-usage');
+  const overstockVal = overstock.reduce((s, i) => s + i.value, 0);
+  const dead = allItems.filter(i => i.mau === 0 && i.onHand > 0 && getIS(i.itemId) === 'active');
+  const deadVal = dead.reduce((s, i) => s + i.value, 0);
+  const riskyPOs = allItems.filter(i => i.poReview);
+  const riskyPOVal = riskyPOs.reduce((s, i) => s + i.openPO * i.stdCost, 0);
+  const holdItems = allItems.filter(i => i.isOnHold);
+  const cfItems = allItems.filter(i => i.isConsumeFirst);
+
+  // ── GAUGE ──
+  const gaugePct = Math.min(turns / targetTurns * 100, 100);
+  const gaugeColor = turns >= 3 ? 'var(--ok)' : turns >= 2 ? 'var(--warn)' : 'var(--danger)';
+
+  let html = `<div style="display:grid;grid-template-columns:280px 1fr;gap:20px;margin-bottom:24px">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;text-align:center">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Inventory Turns</div>
+      <svg width="200" height="120" viewBox="0 0 200 120" style="margin:0 auto;display:block">
+        <path d="M20,100 A80,80 0 0,1 180,100" fill="none" stroke="var(--border)" stroke-width="12" stroke-linecap="round"/>
+        <path d="M20,100 A80,80 0 0,1 180,100" fill="none" stroke="${gaugeColor}" stroke-width="12" stroke-linecap="round"
+          stroke-dasharray="${gaugePct * 2.51} 251" />
+        <text x="100" y="85" text-anchor="middle" fill="var(--text)" font-family="var(--mono)" font-size="28" font-weight="700">${turns.toFixed(1)}</text>
+        <text x="100" y="105" text-anchor="middle" fill="var(--muted)" font-size="11">target: ${targetTurns}.0</text>
+      </svg>
+      <div style="font-family:var(--mono);font-size:13px;margin-top:8px;color:${gaugeColor}">${turns >= targetTurns ? 'ON TARGET' : '$' + fmtK(gap) + ' excess'}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700">$${fmtK(totalVal)}</div>
+        <div style="font-size:11px;color:var(--muted)">Total Inventory</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Target: $${fmtK(targetVal)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--danger)">${overstock.length}</div>
+        <div style="font-size:11px;color:var(--muted)">Overstock Items (>${holdT}mo)</div>
+        <div style="font-size:10px;color:var(--danger);margin-top:4px">$${fmtK(overstockVal)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:#94a3b8">${dead.length}</div>
+        <div style="font-size:11px;color:var(--muted)">Dead Stock (MAU=0)</div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:4px">$${fmtK(deadVal)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--warn)">${riskyPOs.length}</div>
+        <div style="font-size:11px;color:var(--muted)">Risky Open POs</div>
+        <div style="font-size:10px;color:var(--warn);margin-top:4px">$${fmtK(riskyPOVal)}</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--danger)">${holdItems.length}</div>
+        <div style="font-size:11px;color:var(--muted)">On HOLD (blocked)</div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:#fb923c">${cfItems.length}</div>
+        <div style="font-size:11px;color:var(--muted)">Consume First</div>
+      </div>
+    </div>
+  </div>`;
+
+  // ── WATERFALL ──
+  const healthyVal = totalVal - overstockVal - deadVal;
+  const segments = [
+    { label: 'Healthy', val: healthyVal, color: 'var(--ok)' },
+    { label: 'Overstock', val: overstockVal, color: 'var(--danger)' },
+    { label: 'Dead Stock', val: deadVal, color: '#94a3b8' },
+  ];
+  const totalBar = segments.reduce((s, seg) => s + seg.val, 0);
+  html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:24px">
+    <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Inventory Breakdown</div>
+    <div style="display:flex;height:32px;border-radius:6px;overflow:hidden;margin-bottom:8px">
+      ${segments.map(seg => `<div style="width:${seg.val/totalBar*100}%;background:${seg.color};position:relative" title="${seg.label}: $${fmtK(seg.val)}"></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:16px;font-size:11px">
+      ${segments.map(seg => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${seg.color};margin-right:4px"></span>${seg.label}: $${fmtK(seg.val)} (${(seg.val/totalBar*100).toFixed(0)}%)</span>`).join('')}
+    </div>
+  </div>`;
+
+  // ── ACTION LIST: Top items to reduce ──
+  const excess3mo = allItems
+    .filter(i => i.mohwpo !== null && i.mohwpo > 3 && i.mau > 0 && getIS(i.itemId) === 'active')
+    .map(i => ({ ...i, excessQty: Math.max(0, i.onHand - i.mau * 3), excessVal: Math.max(0, (i.onHand - i.mau * 3)) * i.stdCost }))
+    .filter(i => i.excessVal > 100)
+    .sort((a, b) => b.excessVal - a.excessVal);
+
+  html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:24px">
+    <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Top Reduction Opportunities — excess over 3 months (${excess3mo.length} items, $${fmtK(excess3mo.reduce((s,i)=>s+i.excessVal,0))})</div>
+    <div style="overflow-x:auto"><table class="po-table"><thead><tr>
+      <th>Item ID</th><th>Description</th><th>Supplier</th>
+      <th style="text-align:right">OH</th><th style="text-align:right">MAU</th><th style="text-align:right">MOH</th>
+      <th style="text-align:right">Excess Units</th><th style="text-align:right">Excess $</th><th>Action</th>
+    </tr></thead><tbody>`;
+  excess3mo.slice(0, 30).forEach(i => {
+    const action = i.isOnHold ? '<span style="color:var(--danger);font-size:10px;font-weight:600">⛔ ON HOLD</span>'
+      : i.poReview ? '<span style="color:var(--warn);font-size:10px;font-weight:600">⚠ REVIEW PO</span>'
+      : '<span style="color:var(--muted);font-size:10px">—</span>';
+    html += `<tr>
+      <td style="font-family:var(--mono);font-size:11px">${esc(i.itemId)}</td>
+      <td style="font-size:11px">${esc(i.desc)}</td>
+      <td style="font-size:10px;color:var(--muted)">${esc(i.suppName)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(i.onHand)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${i.mau.toFixed(1)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${i.mohwpo > holdT ? 'var(--danger)' : 'var(--warn)'}">${i.mohwpo.toFixed(1)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(i.excessQty)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:var(--danger)">$${fmtK(i.excessVal)}</td>
+      <td>${action}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div></div>';
+
+  // ── SUPPLIER SCORECARD ──
+  const suppExcess = {};
+  allItems.filter(i => i.mohwpo !== null && i.mohwpo > 3 && i.mau > 0 && getIS(i.itemId) === 'active').forEach(i => {
+    const exc = Math.max(0, (i.onHand - i.mau * 3)) * i.stdCost;
+    if (exc <= 0) return;
+    if (!suppExcess[i.suppName]) suppExcess[i.suppName] = { excess: 0, items: 0, totalVal: 0, totalPO: 0 };
+    suppExcess[i.suppName].excess += exc;
+    suppExcess[i.suppName].items++;
+    suppExcess[i.suppName].totalVal += i.value;
+    suppExcess[i.suppName].totalPO += i['openPO$'];
+  });
+  const suppList = Object.entries(suppExcess).sort((a, b) => b[1].excess - a[1].excess);
+
+  html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:24px">
+    <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Excess by Supplier</div>
+    <table class="po-table"><thead><tr>
+      <th>Supplier</th><th style="text-align:right">Items</th><th style="text-align:right">Inv Value</th>
+      <th style="text-align:right">Excess $</th><th style="text-align:right">Open POs</th><th>Excess Bar</th>
+    </tr></thead><tbody>`;
+  const maxExcess = suppList.length ? suppList[0][1].excess : 1;
+  suppList.slice(0, 15).forEach(([supp, d]) => {
+    const pct = (d.excess / maxExcess * 100).toFixed(0);
+    html += `<tr>
+      <td style="font-size:11px">${esc(supp)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${d.items}</td>
+      <td style="text-align:right;font-family:var(--mono)">$${fmtK(d.totalVal)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:var(--danger)">$${fmtK(d.excess)}</td>
+      <td style="text-align:right;font-family:var(--mono)">$${fmtK(d.totalPO)}</td>
+      <td style="width:150px"><div style="height:8px;border-radius:4px;background:var(--bg4);overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--danger);border-radius:4px"></div></div></td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  // ── RISKY POs ──
+  if (riskyPOs.length) {
+    html += `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Risky Open POs — will worsen overstock ($${fmtK(riskyPOVal)})</div>
+      <div style="overflow-x:auto"><table class="po-table"><thead><tr>
+        <th>Item ID</th><th>Description</th><th>Supplier</th>
+        <th style="text-align:right">MOH Now</th><th style="text-align:right">ERP PO Qty</th><th style="text-align:right">PO $</th>
+        <th style="text-align:right">MOH After</th><th>Risk</th>
+      </tr></thead><tbody>`;
+    riskyPOs.sort((a, b) => (b.openPO * b.stdCost) - (a.openPO * a.stdCost)).slice(0, 20).forEach(i => {
+      const poVal = i.openPO * i.stdCost;
+      const mohAfter = i.mohwpo;
+      const risk = mohAfter > holdT * 2 ? 'CRITICAL' : mohAfter > holdT ? 'HIGH' : 'MODERATE';
+      const riskColor = risk === 'CRITICAL' ? 'var(--danger)' : risk === 'HIGH' ? 'var(--warn)' : 'var(--muted)';
+      html += `<tr>
+        <td style="font-family:var(--mono);font-size:11px">${esc(i.itemId)}</td>
+        <td style="font-size:11px">${esc(i.desc)}</td>
+        <td style="font-size:10px;color:var(--muted)">${esc(i.suppName)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${i.moh.toFixed(1)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmt(i.openPO)}</td>
+        <td style="text-align:right;font-family:var(--mono)">$${fmtK(poVal)}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${riskColor}">${mohAfter.toFixed(1)}</td>
+        <td><span style="font-size:10px;font-weight:700;color:${riskColor}">${risk}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  container.innerHTML = html;
 }
 
 // ─────────────────────────────────────────────
