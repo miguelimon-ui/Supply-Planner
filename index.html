@@ -1144,6 +1144,11 @@ async function setMOQ(itemId, value) {
 async function loadItemStatusFromSupabase() {
   const data = await sbFetch('sp_item_status?select=*&limit=5000');
   if (!data || !data.length) return;
+  // Supabase is source of truth — clear local state first
+  itemStatus = {};
+  targetDates = {};
+  componentFamilies = {};
+  itemMOQs = {};
   data.forEach(r => {
     if (r.status && r.status !== 'active') itemStatus[r.item_id] = r.status;
     if (r.target_date) targetDates[r.item_id] = r.target_date;
