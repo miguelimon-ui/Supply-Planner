@@ -1143,13 +1143,37 @@ async function setMOQ(itemId, value) {
 
 async function loadItemStatusFromSupabase() {
   const data = await sbFetch('sp_item_status?select=*&limit=5000');
-  if (!data || !data.length) return;
-  // Supabase is source of truth — clear local state first
+  const sbMap = {};
+  (data || []).forEach(r => { sbMap[r.item_id] = r; });
+
+  // Check if localStorage has statuses not in Supabase → migrate them up
+  const localOnly = Object.entries(itemStatus).filter(([id]) => !sbMap[id]);
+  if (localOnly.length > 0) {
+    console.log(`Migrating ${localOnly.length} local statuses to Supabase...`);
+    const rows = localOnly.map(([item_id, status]) => ({
+      item_id, status,
+      target_date: targetDates[item_id] || null,
+      component_family: componentFamilies[item_id] || null,
+      moq: itemMOQs[item_id] || null,
+      updated_at: new Date().toISOString()
+    }));
+    const CHUNK = 200;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await sbFetch('sp_item_status', {
+        method: 'POST', write: true,
+        headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+        body: rows.slice(i, i + CHUNK)
+      });
+    }
+  }
+
+  // Now Supabase is source of truth — reload everything from it
+  const fresh = await sbFetch('sp_item_status?select=*&limit=5000');
   itemStatus = {};
   targetDates = {};
   componentFamilies = {};
   itemMOQs = {};
-  data.forEach(r => {
+  (fresh || []).forEach(r => {
     if (r.status && r.status !== 'active') itemStatus[r.item_id] = r.status;
     if (r.target_date) targetDates[r.item_id] = r.target_date;
     if (r.component_family) componentFamilies[r.item_id] = r.component_family;
