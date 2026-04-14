@@ -2140,8 +2140,16 @@ function renderLTView() {
   document.getElementById('lt-items-covered').textContent = itemsCovered;
   document.getElementById('lt-items-override').textContent = itemsOverride;
 
-  // Supplier list
-  document.getElementById('lt-supplier-list').innerHTML = suppliers.map(supp => {
+  // Supplier list as table
+  document.getElementById('lt-supplier-list').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr>
+      <th style="text-align:left;padding:8px 12px;font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border)">Supplier</th>
+      <th style="text-align:center;padding:8px 8px;font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:2px solid var(--border);width:90px">Lead Time</th>
+      <th style="text-align:center;padding:8px 8px;font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:2px solid var(--border);width:90px">Hold Mo</th>
+      <th style="text-align:center;padding:8px 8px;font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:2px solid var(--border);width:70px">Items</th>
+      <th style="text-align:center;padding:8px 8px;font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:2px solid var(--border);width:60px">SS</th>
+    </tr></thead><tbody>` +
+  suppliers.map(supp => {
     const suppItems = activeItems.filter(i => i.suppName === supp);
     const lt = ltSupplier[supp];
     const hasLT = lt !== undefined;
@@ -2150,46 +2158,26 @@ function renderLTView() {
       ? (suppItems.reduce((s,i) => s + i.ssMult, 0) / suppItems.length).toFixed(1)
       : '—';
     const isSelected = ltSelectedSupplier === supp;
-    return `<div onclick="selectLTSupplier('${esc(supp)}')"
-      style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
-             background:${isSelected ? 'rgba(79,142,247,.08)' : 'transparent'};
-             border-left:3px solid ${isSelected ? 'var(--accent2)' : 'transparent'};
-             display:grid;grid-template-columns:1fr 90px 90px 90px 60px;gap:8px;align-items:center">
-      <div>
+    const sh = supplierHold[supp]; const hasSH = sh !== undefined;
+    return `<tr onclick="selectLTSupplier('${esc(supp)}')" style="cursor:pointer;border-bottom:1px solid var(--border);background:${isSelected ? 'rgba(79,142,247,.08)' : 'transparent'};border-left:3px solid ${isSelected ? 'var(--accent2)' : 'transparent'}">
+      <td style="padding:10px 12px">
         <div style="font-size:12px;font-weight:600">${esc(supp)}</div>
-        ${overrideCount > 0 ? `<div style="font-size:10px;color:var(--muted)">${overrideCount} item override${overrideCount>1?'s':''}</div>` : ''}
-      </div>
-      <div style="text-align:center">
-        <input type="number" min="0.5" max="24" step="0.5"
-          value="${hasLT ? lt : ''}"
-          placeholder="—"
-          title="Lead time in months for ${esc(supp)}"
-          onclick="event.stopPropagation()"
-          onchange="setSupplierLT('${esc(supp)}', this.value)"
-          style="width:76px;text-align:center;padding:4px 6px;border-radius:5px;
-                 border:1px solid ${hasLT ? 'var(--accent2)' : 'var(--border)'};
-                 background:${hasLT ? 'rgba(79,142,247,.06)' : 'var(--bg)'};
-                 color:${hasLT ? 'var(--accent2)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">lead time</div>
-      </div>
-      <div style="text-align:center">
-        ${(() => { const sh = supplierHold[supp]; const hasSH = sh !== undefined; return `<input type="number" min="1" max="24" step="1"
-          value="${hasSH ? sh : ''}"
-          placeholder="${getHoldThreshold()}"
-          title="HOLD threshold for ${esc(supp)} (global: ${getHoldThreshold()})"
-          onclick="event.stopPropagation()"
-          onchange="setSupplierHold('${esc(supp)}', this.value)"
-          style="width:76px;text-align:center;padding:4px 6px;border-radius:5px;
-                 border:1px solid ${hasSH ? 'var(--danger)' : 'var(--border)'};
-                 background:${hasSH ? 'rgba(248,113,113,.06)' : 'var(--bg)'};
-                 color:${hasSH ? 'var(--danger)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">hold mo</div>`; })()}
-      </div>
-      <div style="text-align:center;font-size:11px;color:var(--muted)">${suppItems.length} items</div>
-      <div style="text-align:center;font-family:var(--mono);font-size:12px;
-                  color:${hasLT ? 'var(--ok)' : 'var(--warn)'};font-weight:600">${avgSS}×</div>
-    </div>`;
-  }).join('');
+        ${overrideCount > 0 ? `<div style="font-size:10px;color:var(--muted)">${overrideCount} override${overrideCount>1?'s':''}</div>` : ''}
+      </td>
+      <td style="text-align:center;padding:6px 4px">
+        <input type="number" min="0.5" max="24" step="0.5" value="${hasLT ? lt : ''}" placeholder="—"
+          onclick="event.stopPropagation()" onchange="setSupplierLT('${esc(supp)}', this.value)"
+          style="width:70px;text-align:center;padding:4px 6px;border-radius:5px;border:1px solid ${hasLT ? 'var(--accent2)' : 'var(--border)'};background:${hasLT ? 'rgba(79,142,247,.06)' : 'var(--bg)'};color:${hasLT ? 'var(--accent2)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
+      </td>
+      <td style="text-align:center;padding:6px 4px">
+        <input type="number" min="1" max="24" step="1" value="${hasSH ? sh : ''}" placeholder="${getHoldThreshold()}"
+          onclick="event.stopPropagation()" onchange="setSupplierHold('${esc(supp)}', this.value)"
+          style="width:70px;text-align:center;padding:4px 6px;border-radius:5px;border:1px solid ${hasSH ? 'var(--danger)' : 'var(--border)'};background:${hasSH ? 'rgba(248,113,113,.06)' : 'var(--bg)'};color:${hasSH ? 'var(--danger)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
+      </td>
+      <td style="text-align:center;font-size:11px;color:var(--muted);padding:6px 4px">${suppItems.length}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:12px;color:${hasLT ? 'var(--ok)' : 'var(--warn)'};font-weight:600;padding:6px 4px">${avgSS}×</td>
+    </tr>`;
+  }).join('') + '</tbody></table>';
 
   // Render item panel if supplier selected
   if (ltSelectedSupplier) renderLTItemPanel(ltSelectedSupplier);
