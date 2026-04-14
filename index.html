@@ -1142,36 +1142,7 @@ async function setMOQ(itemId, value) {
 }
 
 async function loadItemStatusFromSupabase() {
-  // Load from Supabase
   const data = await sbFetch('sp_item_status?select=*&limit=5000') || [];
-  const sbMap = {};
-  data.forEach(r => { sbMap[r.item_id] = r; });
-
-  // Migrate local-only statuses (one-time)
-  const localOnly = Object.entries(itemStatus).filter(([id]) => !sbMap[id]);
-  if (localOnly.length > 0) {
-    console.log(`Migrating ${localOnly.length} local statuses to Supabase...`);
-    const rows = localOnly.map(([item_id, status]) => ({
-      item_id, status,
-      target_date: targetDates[item_id] || null,
-      component_family: componentFamilies[item_id] || null,
-      moq: itemMOQs[item_id] || null,
-      updated_at: new Date().toISOString()
-    }));
-    const CHUNK = 200;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      await sbFetch('sp_item_status', {
-        method: 'POST', write: true,
-        headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
-        body: rows.slice(i, i + CHUNK)
-      });
-    }
-    // Add migrated items to data so we don't need a second query
-    localOnly.forEach(([item_id, status]) => {
-      data.push({ item_id, status, target_date: targetDates[item_id] || null, component_family: componentFamilies[item_id] || null, moq: itemMOQs[item_id] || null });
-    });
-  }
-
   // Supabase is source of truth
   itemStatus = {};
   targetDates = {};
