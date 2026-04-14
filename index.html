@@ -1889,7 +1889,7 @@ function updateVendorStrip() {
     return;
   }
 
-  const suppItems = items.filter(i => i.suppName === fSupp && i.status !== 'no-usage');
+  const suppItems = items.filter(i => i.suppName === fSupp);
   const totalVal = suppItems.reduce((s, i) => s + i.value, 0);
   const totalPO$ = suppItems.reduce((s, i) => s + i.openPO$, 0);
   const belowCount = suppItems.filter(i => i.status === 'BELOW').length;
