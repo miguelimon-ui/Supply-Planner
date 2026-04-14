@@ -602,6 +602,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
             <th class="is-th" style="text-align:right">On Hand</th>
             <th class="is-th" style="text-align:right">MAU</th>
             <th class="is-th" style="width:120px">Family</th>
+            <th class="is-th" style="text-align:right;width:70px">MOQ</th>
             <th class="is-th" style="text-align:center;width:180px">Status</th>
             <th class="is-th" style="text-align:center;width:130px">Target Date</th>
           </tr>
@@ -1117,6 +1118,23 @@ async function syncFamilyToSupabase(itemId, family) {
   });
 }
 
+// MOQ per item
+let itemMOQs = {};
+function saveMOQs() { try { localStorage.setItem('sp_moqs', JSON.stringify(itemMOQs)); } catch(e) {} }
+try { itemMOQs = JSON.parse(localStorage.getItem('sp_moqs') || '{}'); } catch(e) { itemMOQs = {}; }
+
+async function setMOQ(itemId, value) {
+  const v = value === '' ? null : +value;
+  if (v && v > 0) itemMOQs[itemId] = v; else delete itemMOQs[itemId];
+  saveMOQs();
+  // Sync to Supabase
+  await sbFetch('sp_item_status', {
+    method: 'POST', write: true,
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: [{ item_id: itemId, moq: v, updated_at: new Date().toISOString() }]
+  });
+}
+
 async function loadItemStatusFromSupabase() {
   const data = await sbFetch('sp_item_status?select=*&limit=5000');
   if (!data || !data.length) return;
@@ -1124,10 +1142,12 @@ async function loadItemStatusFromSupabase() {
     if (r.status && r.status !== 'active') itemStatus[r.item_id] = r.status;
     if (r.target_date) targetDates[r.item_id] = r.target_date;
     if (r.component_family) componentFamilies[r.item_id] = r.component_family;
+    if (r.moq && +r.moq > 0) itemMOQs[r.item_id] = +r.moq;
   });
   saveIS();
   saveTargetDates();
   saveComponentFamilies();
+  saveMOQs();
 }
 
 // ─────────────────────────────────────────────
@@ -1224,25 +1244,34 @@ function recalcAll() {
     const moh = mau > 0 ? raw.onHand / mau : null;
     const mohwpo = mau > 0 ? (raw.onHand + raw.openPO) / mau : null;
 
-    // Auto-suggested POs: cascading second pass so suggestions from prior months
-    // affect the BB available in later months, and monthZeroed blocks a suggestion
-    // from entering the cascade (forcing deficit forward to the next months).
+    // Auto-suggested POs: cascading second pass
+    const moq = itemMOQs[raw.itemId] || 0;
     const suggested = [];
+    const moqAdjusted = [];  // true if suggestion was rounded up to MOQ
     let bbCascade = raw.onHand;
     for (let i = 0; i < 12; i++) {
       const erpPO    = raw.erpPOs[i] || 0;
       const manualPO = (manualPOs[raw.itemId] && manualPOs[raw.itemId][i]) || 0;
       const bbAfter  = Math.round(bbCascade + erpPO + manualPO - pmu[i]);
       let sugg = 0;
+      let wasMoqAdj = false;
       if (mau > 0 && mau !== 999 && bbAfter < ss[i]) {
-        // zeroed month with no manual override → force 0, cascade deficit forward
         if (monthZeroed[i] && manualPO === 0) {
           sugg = 0;
         } else {
           sugg = Math.max(0, Math.ceil(ss[i] - bbAfter));
+          // Apply MOQ: round up to nearest multiple of MOQ
+          if (moq > 1 && sugg > 0 && sugg < moq) {
+            wasMoqAdj = true;
+            sugg = moq;
+          } else if (moq > 1 && sugg > 0) {
+            const rounded = Math.ceil(sugg / moq) * moq;
+            if (rounded !== sugg) { wasMoqAdj = true; sugg = rounded; }
+          }
         }
       }
       suggested.push(sugg);
+      moqAdjusted.push(wasMoqAdj);
       bbCascade = Math.round(bbCascade + erpPO + manualPO + sugg - pmu[i]);
     }
 
@@ -1255,7 +1284,7 @@ function recalcAll() {
     }
 
     const lt = getLT(raw);
-    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none' };
+    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, moqAdjusted, moq, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none' };
   });
 
   updateStats();
@@ -1465,7 +1494,8 @@ function renderTable() {
       // If month is zeroed, force suggestion display to 0 (but preserve manual edits)
       const isZeroed = monthZeroed[mi] && manVal === undefined;
       const displayPO = isZeroed ? 0 : (manVal !== undefined ? manVal : (hasSugg ? origSugg : 0));
-      const poColor = manVal !== undefined ? 'var(--accent2)' : isZeroed ? 'var(--muted)' : hasSugg ? 'var(--warn)' : 'var(--muted)';
+      const isMoqAdj = item.moqAdjusted && item.moqAdjusted[mi];
+      const poColor = manVal !== undefined ? 'var(--accent2)' : isZeroed ? 'var(--muted)' : isMoqAdj ? '#f472b6' : hasSugg ? 'var(--warn)' : 'var(--muted)';
       // Show ghost of original suggestion when user has manually overridden
       const wasEdited = manVal !== undefined;
       const showGhost = wasEdited && origSugg > 0 && manVal !== origSugg;
@@ -1499,6 +1529,7 @@ function renderTable() {
                   >← ${Math.round(origSugg)}</span>`
               : ''}
           </div>
+          ${isMoqAdj && !wasEdited ? `<div style="font-size:8px;color:#f472b6;font-family:var(--mono)">MOQ:${item.moq}</div>` : ''}
           ${m.erpPO > 0 ? `<div class="mc-erp">ERP:${Math.round(m.erpPO)}</div>` : ''}
           <div class="mc-foot"><span>SS:${Math.round(m.ss)}</span><span style="color:${mohColor}">${mohStock !== null ? mohStock.toFixed(1) + 'm' : '—'}</span></div>
         </div>
@@ -2289,6 +2320,11 @@ function renderISView() {
         <input type="text" value="${esc(componentFamilies[item.itemId] || '')}" placeholder="—"
           onchange="componentFamilies['${esc(item.itemId)}']=this.value.trim();saveComponentFamilies();syncFamilyToSupabase('${esc(item.itemId)}',this.value.trim())"
           style="width:100px;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
+      </td>
+      <td style="padding:7px 10px;text-align:right">
+        <input type="number" value="${itemMOQs[item.itemId] || ''}" placeholder="—" min="1"
+          onchange="setMOQ('${esc(item.itemId)}',this.value)"
+          style="width:60px;text-align:right;font-size:11px;font-family:var(--mono);background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
       </td>
       <td style="padding:7px 10px;text-align:center">
         <select class="is-status-select ${is}" onchange="setISAndRefresh('${esc(item.itemId)}', this.value, this)">
