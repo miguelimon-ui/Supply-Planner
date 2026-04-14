@@ -383,13 +383,13 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div style="display:flex;flex-direction:column;gap:2px">
       <div class="sf-item">
         <div class="sf-label" style="color:var(--ok)">SS×</div>
-        <input class="sf-input sf-sep-ss" type="number" id="ss-mult" value="3" min="0" step="0.5" style="width:42px">
+        <input class="sf-input sf-sep-ss" type="number" id="ss-mult" value="3" min="0" step="0.5" style="width:42px" onchange="saveSSOS()">
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:2px">
       <div class="sf-item">
         <div class="sf-label" style="color:var(--overst)">OS×</div>
-        <input class="sf-input sf-sep-input" type="number" id="os-mult" value="5" min="0" step="0.5" style="width:42px">
+        <input class="sf-input sf-sep-input" type="number" id="os-mult" value="5" min="0" step="0.5" style="width:42px" onchange="saveSSOS()">
       </div>
     </div>
     <div class="apply-btn-wrap">
@@ -984,6 +984,7 @@ function parseERP(raw) {
   }
 
   buildSFInputs();
+  loadSSOS();
   buildSupplierFilter();
   buildPOMonthFilter();
   buildMonthFilter();
@@ -1072,6 +1073,7 @@ async function loadMRPFromSupabase() {
   await loadBOMsFromSupabase();
 
   buildSFInputs();
+  loadSSOS();
   buildSupplierFilter();
   buildPOMonthFilter();
   buildMonthFilter();
@@ -1145,6 +1147,16 @@ function getSF() {
 }
 function getSSMult() { return parseFloat(document.getElementById('ss-mult').value) || 3; }
 function getOSMult() { return parseFloat(document.getElementById('os-mult').value) || 5; }
+function saveSSOS() {
+  localStorage.setItem('sp_ss_mult', document.getElementById('ss-mult').value);
+  localStorage.setItem('sp_os_mult', document.getElementById('os-mult').value);
+}
+function loadSSOS() {
+  const ss = localStorage.getItem('sp_ss_mult');
+  const os = localStorage.getItem('sp_os_mult');
+  if (ss) document.getElementById('ss-mult').value = ss;
+  if (os) document.getElementById('os-mult').value = os;
+}
 
 // ─────────────────────────────────────────────
 // RECALCULATE — replicates Master tab logic
@@ -1164,17 +1176,17 @@ function recalcAll() {
   items = rawItems.map(raw => {
     const mau = raw.mau;
 
-    // Lead time: item override → supplier default → 3× fallback
-    const lt = getLT(raw);
-    const ssMult = lt !== null ? lt : getSSMult();
+    // SS and OS use global multipliers only (lead time is informational)
+    const ssMult = getSSMult();
+    const osMult = getOSMult();
 
     // PMU per month = MAU × Service Factor
     // Month 0 (current month): adjust by days remaining so we only plan what's left
     const pmu = sf.map((f, i) => i === 0 ? mau * f * monthFraction : mau * f);
 
-    // SS and OS per month (SS uses lead time or fallback multiplier)
+    // SS and OS per month
     const ss = pmu.map(p => Math.ceil(p * ssMult));
-    const os = pmu.map(p => Math.ceil(p * getOSMult()));
+    const os = pmu.map(p => Math.ceil(p * osMult));
 
     // Month-by-month simulation
     // Beginning Balance month 0 = On Hand + past-due POs (Month < 0)
@@ -1242,7 +1254,8 @@ function recalcAll() {
       else if (ratio <= 0.75) demandFlag = { type: 'drop', ratio, label: `↓ ${Math.round((1 - ratio) * 100)}%` };
     }
 
-    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, demandFlag, ltMult: ssMult, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'fallback' };
+    const lt = getLT(raw);
+    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none' };
   });
 
   updateStats();
@@ -1718,7 +1731,7 @@ function openPanel(itemId) {
       <div style="font-size:11px;margin-bottom:8px;padding:6px 10px;border-radius:6px;background:${item.ltSource === 'item' ? 'rgba(79,142,247,.08)' : item.ltSource === 'supplier' ? 'rgba(74,222,128,.08)' : 'rgba(251,191,36,.08)'};border:1px solid ${item.ltSource === 'item' ? 'rgba(79,142,247,.2)' : item.ltSource === 'supplier' ? 'rgba(74,222,128,.2)' : 'rgba(251,191,36,.2)'}">
         <span style="color:var(--muted)">SS calculado con: </span>
         <strong style="color:${item.ltSource === 'item' ? 'var(--accent2)' : item.ltSource === 'supplier' ? 'var(--ok)' : 'var(--warn)'}">
-          ${item.ltSource === 'item' ? `${item.ltMult} months (item override)` : item.ltSource === 'supplier' ? `${item.ltMult} months (supplier lead time)` : `3× MAU (fallback — no lead time)`}
+          ${item.ltSource === 'item' ? `${item.lt} months (item override)` : item.ltSource === 'supplier' ? `${item.lt} months (supplier default)` : `No lead time set`} | SS×${item.ssMult} OS×${item.osMult}
         </strong>
         &nbsp;<span style="font-size:10px;color:var(--muted);cursor:pointer;text-decoration:underline" onclick="switchTab('lt')">configure →</span>
       </div>
