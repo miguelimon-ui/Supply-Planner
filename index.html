@@ -1092,6 +1092,7 @@ async function loadMRPFromSupabase() {
 
   // Load item statuses from Supabase
   await loadItemStatusFromSupabase();
+  await loadSupplierSettingsFromSupabase();
 
   // Reload BOMs now that rawItems is populated (MRP data available for lookups)
   await loadBOMsFromSupabase();
@@ -1275,11 +1276,10 @@ function recalcAll() {
     const moh = mau > 0 ? raw.onHand / mau : null;
     const mohwpo = mau > 0 ? (raw.onHand + raw.openPO) / mau : null;
 
-    // Inventory reduction flags
-    const holdThreshold = getHoldThreshold();
+    // Inventory reduction flags (supplier-specific or global threshold)
+    const holdThreshold = getItemHoldThreshold(raw);
     const isConsumeFirst = getIS(raw.itemId) === 'consume_first';
     const isOnHold = mohwpo !== null && mohwpo > holdThreshold && !isConsumeFirst;
-    // PO Review: item has >holdThreshold months AND incoming ERP POs
     const totalErpPO = raw.erpPOs.reduce((s, p) => s + p, 0);
     const poReview = mohwpo !== null && mohwpo > holdThreshold * 0.8 && totalErpPO > 0;
 
@@ -2147,14 +2147,14 @@ function renderLTView() {
     const hasLT = lt !== undefined;
     const overrideCount = suppItems.filter(i => ltItem[i.itemId] !== undefined).length;
     const avgSS = suppItems.length > 0
-      ? (suppItems.reduce((s,i) => s + i.ltMult, 0) / suppItems.length).toFixed(1)
+      ? (suppItems.reduce((s,i) => s + i.ssMult, 0) / suppItems.length).toFixed(1)
       : '—';
     const isSelected = ltSelectedSupplier === supp;
     return `<div onclick="selectLTSupplier('${esc(supp)}')"
       style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;
              background:${isSelected ? 'rgba(79,142,247,.08)' : 'transparent'};
              border-left:3px solid ${isSelected ? 'var(--accent2)' : 'transparent'};
-             display:grid;grid-template-columns:1fr 90px 90px 60px;gap:8px;align-items:center">
+             display:grid;grid-template-columns:1fr 90px 90px 90px 60px;gap:8px;align-items:center">
       <div>
         <div style="font-size:12px;font-weight:600">${esc(supp)}</div>
         ${overrideCount > 0 ? `<div style="font-size:10px;color:var(--muted)">${overrideCount} item override${overrideCount>1?'s':''}</div>` : ''}
@@ -2162,7 +2162,7 @@ function renderLTView() {
       <div style="text-align:center">
         <input type="number" min="0.5" max="24" step="0.5"
           value="${hasLT ? lt : ''}"
-          placeholder="3× fallback"
+          placeholder="—"
           title="Lead time in months for ${esc(supp)}"
           onclick="event.stopPropagation()"
           onchange="setSupplierLT('${esc(supp)}', this.value)"
@@ -2170,7 +2170,20 @@ function renderLTView() {
                  border:1px solid ${hasLT ? 'var(--accent2)' : 'var(--border)'};
                  background:${hasLT ? 'rgba(79,142,247,.06)' : 'var(--bg)'};
                  color:${hasLT ? 'var(--accent2)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">months</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">lead time</div>
+      </div>
+      <div style="text-align:center">
+        ${(() => { const sh = supplierHold[supp]; const hasSH = sh !== undefined; return `<input type="number" min="1" max="24" step="1"
+          value="${hasSH ? sh : ''}"
+          placeholder="${getHoldThreshold()}"
+          title="HOLD threshold for ${esc(supp)} (global: ${getHoldThreshold()})"
+          onclick="event.stopPropagation()"
+          onchange="setSupplierHold('${esc(supp)}', this.value)"
+          style="width:76px;text-align:center;padding:4px 6px;border-radius:5px;
+                 border:1px solid ${hasSH ? 'var(--danger)' : 'var(--border)'};
+                 background:${hasSH ? 'rgba(248,113,113,.06)' : 'var(--bg)'};
+                 color:${hasSH ? 'var(--danger)' : 'var(--muted)'};font-family:var(--mono);font-size:12px">
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">hold mo</div>`; })()}
       </div>
       <div style="text-align:center;font-size:11px;color:var(--muted)">${suppItems.length} items</div>
       <div style="text-align:center;font-family:var(--mono);font-size:12px;
@@ -2192,8 +2205,48 @@ function setSupplierLT(supp, val) {
   if (!isNaN(v) && v > 0) ltSupplier[supp] = v;
   else delete ltSupplier[supp];
   saveLT();
+  syncSupplierSettings(supp);
   recalcAll();
   renderLTView();
+}
+
+// Supplier hold thresholds
+let supplierHold = {};  // { supplierName: months }
+function saveSupplierHold() { try { localStorage.setItem('sp_supp_hold', JSON.stringify(supplierHold)); } catch(e) {} }
+try { supplierHold = JSON.parse(localStorage.getItem('sp_supp_hold') || '{}'); } catch(e) { supplierHold = {}; }
+
+function setSupplierHold(supp, val) {
+  const v = parseFloat(val);
+  if (!isNaN(v) && v > 0) supplierHold[supp] = v;
+  else delete supplierHold[supp];
+  saveSupplierHold();
+  syncSupplierSettings(supp);
+  recalcAll();
+  renderLTView();
+}
+
+function getItemHoldThreshold(item) {
+  // Item-specific (future) → Supplier → Global
+  if (supplierHold[item.suppName] !== undefined) return supplierHold[item.suppName];
+  return getHoldThreshold();
+}
+
+async function syncSupplierSettings(supp) {
+  await sbFetch('sp_supplier_settings', {
+    method: 'POST', write: true,
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: [{ supplier_name: supp, hold_threshold: supplierHold[supp] || null, lead_time_months: ltSupplier[supp] || null, updated_at: new Date().toISOString() }]
+  }).catch(e => console.warn('Failed to sync supplier settings:', e));
+}
+
+async function loadSupplierSettingsFromSupabase() {
+  const data = await sbFetch('sp_supplier_settings?select=*&limit=1000') || [];
+  data.forEach(r => {
+    if (r.hold_threshold && +r.hold_threshold > 0) supplierHold[r.supplier_name] = +r.hold_threshold;
+    if (r.lead_time_months && +r.lead_time_months > 0) ltSupplier[r.supplier_name] = +r.lead_time_months;
+  });
+  saveSupplierHold();
+  saveLT();
 }
 
 function setItemLT(itemId, val) {
@@ -2269,7 +2322,7 @@ function exportLTCSV() {
     const suppLT   = ltSupplier[i.suppName] !== undefined ? ltSupplier[i.suppName] : '';
     const itemOvr  = ltItem[i.itemId]       !== undefined ? ltItem[i.itemId]       : '';
     const effective = getLT(i) ?? 3;
-    rows.push([i.itemId, i.desc, i.suppName, i.mau.toFixed(2), suppLT, itemOvr, effective, i.ltSource, i.ltMult]);
+    rows.push([i.itemId, i.desc, i.suppName, i.mau.toFixed(2), suppLT, itemOvr, effective, i.ltSource, i.ssMult]);
   });
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
