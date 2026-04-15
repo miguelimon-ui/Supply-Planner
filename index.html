@@ -1292,10 +1292,12 @@ function recalcAll() {
       const erpPO    = raw.erpPOs[i] || 0;
       const manualPO = (manualPOs[raw.itemId] && manualPOs[raw.itemId][i]) || 0;
       const bbAfter  = Math.round(bbCascade + erpPO + manualPO - pmu[i]);
+      // Per-month HOLD: only block if THIS month's projected MOH is still > hold threshold
+      const monthMOH = mau > 0 ? bbAfter / mau : null;
+      const monthOnHold = monthMOH !== null && monthMOH > holdThreshold && !isConsumeFirst;
       let sugg = 0;
       let wasMoqAdj = false;
-      // Block suggestions for HOLD items and Consume First items
-      if (isOnHold || isConsumeFirst) {
+      if (monthOnHold || isConsumeFirst) {
         sugg = 0;
       } else if (mau > 0 && mau !== 999 && bbAfter < ss[i]) {
         if (monthZeroed[i] && manualPO === 0) {
