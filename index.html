@@ -194,6 +194,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
 .st-below{color:var(--danger)}
 .st-ok{color:var(--ok)}
 .st-over{color:var(--overst)}
+.stat-hidden{cursor:pointer;border-radius:6px;padding:4px 8px;transition:background .15s}
+.stat-hidden:hover{background:rgba(148,163,184,.08)}
+.stat-hidden.active{background:rgba(148,163,184,.15);outline:1px solid rgba(148,163,184,.45)}
+.stat-hidden.active .stat-l{color:#cbd5e1}
 
 /* badges */
 .badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;font-family:var(--mono)}
@@ -413,6 +417,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="stat stat-danger"><div class="stat-v" id="st-below">—</div><div class="stat-l">Below SS</div></div>
     <div class="stat stat-ok"><div class="stat-v" id="st-ok">—</div><div class="stat-l">OK</div></div>
     <div class="stat stat-over"><div class="stat-v" id="st-over">—</div><div class="stat-l">Overstock</div></div>
+    <div class="stat stat-hidden" id="st-hidden-wrap" onclick="toggleHiddenItems()" title="Items with stock but MAU=0 (likely BOM-consumed components). Click to reveal in table.">
+      <div class="stat-v" id="st-hidden" style="color:#94a3b8">—</div>
+      <div class="stat-l">Hidden <span id="st-hidden-val" style="opacity:.7;font-size:9px;margin-left:2px"></span></div>
+    </div>
     <div class="sdiv"></div>
     <div class="stat"><div class="stat-v" id="st-val">—</div><div class="stat-l">Inv Value</div></div>
     <div class="stat"><div class="stat-v" id="st-po-val">—</div><div class="stat-l">Open POs Value</div></div>
@@ -573,6 +581,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="consume_first">Consume First</option>
         <option value="discontinued">Discontinued</option>
         <option value="custom">Custom</option>
+        <option value="hidden">🔍 Hidden (No Demand + Stock)</option>
       </select>
       <span class="result-count" id="is-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
@@ -603,6 +612,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div class="stat"><div class="stat-v" id="is-cnt-cf" style="color:#fb923c">—</div><div class="stat-l">Consume First</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-disc" style="color:var(--danger)">—</div><div class="stat-l">Discontinued</div></div>
       <div class="stat"><div class="stat-v" id="is-cnt-custom" style="color:var(--accent2)">—</div><div class="stat-l">Custom</div></div>
+      <div class="stat" style="cursor:pointer" onclick="document.getElementById('is-filter-status').value='hidden';renderISView()" title="MAU=0 with stock on hand. Click to filter.">
+        <div class="stat-v" id="is-cnt-hidden" style="color:#94a3b8">—</div>
+        <div class="stat-l">🔍 Hidden</div>
+      </div>
     </div>
     <div style="flex:1;overflow:auto">
       <table style="border-collapse:collapse;font-size:12px;width:100%">
@@ -635,6 +648,8 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <span style="font-weight:600;font-size:13px;color:var(--text)">Bill of Materials</span>
       <span class="result-count" id="bom-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="document.getElementById('fg-bulk-input').click()" title="Upload PeopleSoft FG inventory query to bulk-update FG On Hand">📥 Bulk Update FG On Hand</button>
+        <input type="file" id="fg-bulk-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFGBulkFile(event)">
         <button class="btn btn-sm btn-accent" onclick="showBOMCreate()">+ New BOM</button>
       </div>
     </div>
@@ -675,9 +690,12 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <table class="po-table" id="bom-comp-table">
           <thead><tr>
             <th>Component ID</th><th>Description</th><th style="text-align:right">Qty/Parent</th>
-            <th style="text-align:right">MRP OH</th><th style="text-align:right">OH Override</th>
-            <th style="text-align:right">MRP Open PO</th><th style="text-align:right">PO Override</th>
-            <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th><th style="width:40px"></th>
+            <th style="text-align:right">OH Override</th>
+            <th style="text-align:right">PO Override</th>
+            <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
+            <th style="text-align:center;width:80px" title="Produced in-house by demand — excluded from bottleneck in BOMs + EOL">🏠 In-House?</th>
+            <th style="text-align:center;width:80px" title="Shared with other products — excluded from EOL bottleneck only (grayed out in EOL)">🔗 Shared?</th>
+            <th style="width:40px"></th>
           </tr></thead>
           <tbody id="bom-comp-body"></tbody>
         </table>
@@ -687,6 +705,81 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-sm" onclick="closeBOMModal()">Cancel</button>
         <button class="btn btn-sm btn-accent" onclick="saveBOM()">Save BOM</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FG BULK UPDATE MODAL -->
+  <div id="fg-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:90%;max-width:820px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:700;font-size:14px">📥 Bulk Update FG On Hand</span>
+        <span id="fg-bulk-source" style="font-size:11px;color:var(--muted)"></span>
+        <span style="margin-left:auto;cursor:pointer;font-size:18px;color:var(--muted)" onclick="closeFGBulkModal()">✕</span>
+      </div>
+      <div style="padding:14px 20px;overflow:auto;flex:1">
+        <div id="fg-bulk-mapping" style="margin-bottom:12px;padding:10px 12px;background:var(--bg3);border-radius:6px;font-size:11px"></div>
+        <div style="display:flex;gap:14px;margin-bottom:10px">
+          <div class="stat"><div class="stat-v" id="fg-bulk-total" style="color:var(--text)">—</div><div class="stat-l">Rows in file</div></div>
+          <div class="stat"><div class="stat-v" id="fg-bulk-matched" style="color:var(--ok)">—</div><div class="stat-l">Will update</div></div>
+          <div class="stat"><div class="stat-v" id="fg-bulk-unmatched" style="color:var(--warn)">—</div><div class="stat-l">No BOM (skipped)</div></div>
+          <div class="stat"><div class="stat-v" id="fg-bulk-nochange" style="color:var(--muted)">—</div><div class="stat-l">No change</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:600;color:var(--accent)">Preview</span>
+          <span style="font-size:10px;color:var(--muted)">Showing all matched rows. Unmatched are skipped (no BOM exists for that SKU).</span>
+        </div>
+        <div style="max-height:45vh;overflow:auto;border:1px solid var(--border);border-radius:6px">
+          <table class="po-table" style="margin:0">
+            <thead><tr>
+              <th>Parent SKU</th><th>Description</th>
+              <th style="text-align:right">Current FG OH</th>
+              <th style="text-align:right">New FG OH</th>
+              <th style="text-align:right">Δ</th>
+              <th style="text-align:center">Status</th>
+            </tr></thead>
+            <tbody id="fg-bulk-preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center">
+        <span id="fg-bulk-status" style="margin-right:auto;font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="closeFGBulkModal()">Cancel</button>
+        <button class="btn btn-sm btn-accent" id="fg-bulk-apply-btn" onclick="applyFGBulkUpdate()">Apply Update</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WATCHLIST BULK ADD MODAL -->
+  <div id="wl-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:90%;max-width:720px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:700;font-size:14px">Bulk Add to Watchlist: <span id="wl-bulk-name" style="color:var(--accent)"></span></span>
+        <span style="margin-left:auto;cursor:pointer;font-size:18px;color:var(--muted)" onclick="closeBulkAddModal()">✕</span>
+      </div>
+      <div style="padding:0 20px;border-bottom:1px solid var(--border);display:flex;gap:0">
+        <button id="wl-bulk-tab-boms" class="btn btn-sm" onclick="switchBulkMode('boms')" style="border-radius:0;border:none;border-bottom:2px solid var(--accent);padding:10px 16px">🧱 From BOMs</button>
+        <button id="wl-bulk-tab-items" class="btn btn-sm" onclick="switchBulkMode('items')" style="border-radius:0;border:none;border-bottom:2px solid transparent;padding:10px 16px">📋 From Item List</button>
+      </div>
+      <div style="padding:16px 20px;overflow:auto;flex:1">
+        <div id="wl-bulk-boms-panel">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Select one or more BOMs. All components of each selected BOM will be added to the watchlist (parent FG SKU is also included).</div>
+          <div id="wl-bulk-bom-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+        <div id="wl-bulk-items-panel" style="display:none">
+          <input type="text" id="wl-bulk-items-search" placeholder="Search item or description…" oninput="filterBulkItemList()" style="width:100%;margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-sm" onclick="bulkSelectAllVisible(true)">Select All Visible</button>
+            <button class="btn btn-sm" onclick="bulkSelectAllVisible(false)">Clear Visible</button>
+            <span id="wl-bulk-items-count" style="margin-left:auto"></span>
+          </div>
+          <div id="wl-bulk-items-list" style="display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px"></div>
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center">
+        <span id="wl-bulk-summary" style="margin-right:auto;font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="closeBulkAddModal()">Cancel</button>
+        <button class="btn btn-sm btn-accent" onclick="submitBulkAdd()">Add Selected</button>
       </div>
     </div>
   </div>
@@ -1337,6 +1430,22 @@ function recalcAll() {
 // ─────────────────────────────────────────────
 // STATS
 // ─────────────────────────────────────────────
+// Hidden = MAU=0 with stock on hand, NOT explicitly excluded by lifecycle status.
+// Surfaces components consumed only via BOM where PeopleSoft reports MAU=0 at the component level.
+function isHiddenItem(item) {
+  const is = getIS(item.itemId);
+  if (is === 'non_plan' || is === 'eol' || is === 'discontinued') return false;
+  return item.mau === 0 && item.onHand > 0;
+}
+
+let showHidden = false;
+function toggleHiddenItems() {
+  showHidden = !showHidden;
+  const wrap = document.getElementById('st-hidden-wrap');
+  if (wrap) wrap.classList.toggle('active', showHidden);
+  applyFilters();
+}
+
 function updateStats() {
   // Totals: always show all active items (excluding no-usage)
   const allActive = items.filter(i => i.status !== 'no-usage');
@@ -1344,6 +1453,11 @@ function updateStats() {
   const below = allActive.filter(i => i.status === 'BELOW').length;
   const ok    = allActive.filter(i => i.status === 'OK').length;
   const over  = allActive.filter(i => i.status === 'OVERSTOCK').length;
+
+  // Hidden: items with stock but no demand (excluded from totals by 'no-usage' filter)
+  const hiddenItems = items.filter(isHiddenItem);
+  const hidden = hiddenItems.length;
+  const hiddenVal = hiddenItems.reduce((s, i) => s + (i.value || 0), 0);
 
   // Value, POs, Turns: use ALL items (including no-usage / MAU=0)
   const val   = items.reduce((s, i) => s + i.value, 0);
@@ -1355,6 +1469,10 @@ function updateStats() {
   document.getElementById('st-below').textContent = below.toLocaleString();
   document.getElementById('st-ok').textContent = ok.toLocaleString();
   document.getElementById('st-over').textContent = over.toLocaleString();
+  const hEl = document.getElementById('st-hidden');
+  if (hEl) hEl.textContent = hidden.toLocaleString();
+  const hValEl = document.getElementById('st-hidden-val');
+  if (hValEl) hValEl.textContent = hidden > 0 ? '$' + (hiddenVal/1000).toFixed(0) + 'k' : '';
   document.getElementById('st-val').textContent = '$' + (val/1000).toFixed(0) + 'k';
   document.getElementById('st-po-val').textContent = '$' + (poVal/1000).toFixed(0) + 'k';
   const turnsEl = document.getElementById('st-turns');
@@ -1418,7 +1536,10 @@ function applyFilters() {
   const selectedIS  = getSelectedISPills();  // array of selected statuses
 
   filtered = items.filter(item => {
-    if (item.status === 'no-usage') return false;
+    if (item.status === 'no-usage') {
+      // Allow hidden items (no demand + stock) when user toggles HIDDEN stat
+      if (!showHidden || !isHiddenItem(item)) return false;
+    }
     if (fSupp && item.suppName !== fSupp) return false;
     if (search) {
       const hay = `${item.itemId} ${item.desc} ${item.suppName}`.toLowerCase();
@@ -1516,11 +1637,14 @@ function renderTable() {
   const tbody = document.getElementById('tbl-body');
 
   tbody.innerHTML = page.map(item => {
+    const isHidden = isHiddenItem(item);
     const badgeMap = {
       'BELOW':     '<span class="badge b-danger">BELOW SS</span>',
       'OK':        '<span class="badge b-ok">OK</span>',
       'OVERSTOCK': '<span class="badge b-over">OVERSTOCK</span>',
-      'no-usage':  '<span class="badge b-muted">NO USE</span>',
+      'no-usage':  isHidden
+                    ? '<span class="badge b-muted" style="background:rgba(148,163,184,.18);color:#cbd5e1" title="MAU=0 but stock on hand — likely BOM-consumed component">🔍 HIDDEN</span>'
+                    : '<span class="badge b-muted">NO USE</span>',
     };
     const rowClass = { 'BELOW': 'r-below', 'OVERSTOCK': 'r-over' }[item.status] || 'r-ok';
     const isClass  = { 'active': 'is-active', 'to_be_discontinued': 'is-tbd', 'discontinued': 'is-disc', 'custom': 'is-custom' }[getIS(item.itemId)] || 'is-active';
@@ -2378,7 +2502,9 @@ function renderISView() {
 
   let list = rawItems.filter(i => {
     if (fSupp && i.suppName !== fSupp) return false;
-    if (fISStatus && getIS(i.itemId) !== fISStatus) return false;
+    if (fISStatus === 'hidden') {
+      if (!isHiddenItem(i)) return false;
+    } else if (fISStatus && getIS(i.itemId) !== fISStatus) return false;
     if (search) {
       const hay = `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase();
       if (!hay.includes(search)) return false;
@@ -2395,6 +2521,7 @@ function renderISView() {
     document.getElementById('is-cnt-cf').textContent       = rawItems.filter(i => getIS(i.itemId) === 'consume_first').length;
     document.getElementById('is-cnt-disc').textContent    = rawItems.filter(i => getIS(i.itemId) === 'discontinued').length;
     document.getElementById('is-cnt-custom').textContent  = rawItems.filter(i => getIS(i.itemId) === 'custom').length;
+    document.getElementById('is-cnt-hidden').textContent  = rawItems.filter(isHiddenItem).length;
   }
   updateISCounts();
   document.getElementById('is-count').textContent = `${list.length} items`;
@@ -2750,6 +2877,8 @@ async function loadBOMsFromSupabase() {
       id: l.id, compSku: l.component_sku, compName: l.component_name,
       qtyPerParent: +l.qty_per_parent || 1,
       qtyOHOverride: l.qty_oh_override, openPOOverride: l.open_po_override,
+      produceInHouse: !!l.produce_in_house,
+      sharedComponent: !!l.shared_component,
       sortOrder: l.sort_order || 0
     })).sort((a,b) => a.sortOrder - b.sortOrder)
   }));
@@ -2770,7 +2899,7 @@ function renderBOMView() {
 
   let html = '';
   bomList.forEach((bom, bi) => {
-    // Calculate max buildable from components + MRP
+    // Calculate max buildable from components + MRP (in-house components excluded from bottleneck)
     const compCalcs = bom.components.map(c => {
       const mrp = getMRPItem(c.compSku);
       const qtyOH = c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? +c.qtyOHOverride : (mrp ? mrp.onHand : 0);
@@ -2779,8 +2908,9 @@ function renderBOMView() {
       const maxUnits = c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0;
       return { ...c, mrp, qtyOH, openPO, avail, maxUnits, hasOverride: c.qtyOHOverride !== null || c.openPOOverride !== null };
     });
-    const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
-    const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
+    const bottleneckCandidates = compCalcs.filter(c => !c.produceInHouse);
+    const maxBuildable = bottleneckCandidates.length ? Math.min(...bottleneckCandidates.map(c => c.maxUnits)) : 0;
+    const bottleneck = bottleneckCandidates.length ? bottleneckCandidates.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
 
     // Parent FG on hand (override or MRP)
     const parentMRP = getMRPItem(bom.parentSku);
@@ -2819,17 +2949,26 @@ function renderBOMView() {
         </tr></thead><tbody>`;
 
     compCalcs.forEach(c => {
-      const isBn = bottleneck && c.compSku === bottleneck.compSku;
+      const inHouse = !!c.produceInHouse;
+      const shared  = !!c.sharedComponent;
+      const isBn = bottleneck && c.compSku === bottleneck.compSku && !inHouse;
       const mrpOH = c.mrp ? c.mrp.onHand : 0;
       const mrpPO = c.mrp ? c.mrp.openPO : 0;
-      html += `<tr style="${isBn ? 'background:rgba(251,191,36,.06)' : ''}">
-        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
+      const rowBg = inHouse ? 'background:rgba(0,163,225,.05)'
+                   : shared ? 'background:rgba(167,139,250,.04)'
+                   : isBn   ? 'background:rgba(251,191,36,.06)' : '';
+      const badges = (inHouse ? ' <span style="color:var(--accent);font-size:9px" title="Produced in-house by demand — excluded from bottleneck">🏠 IN-HOUSE</span>' : '')
+                   + (shared  ? ' <span style="color:var(--overst);font-size:9px" title="Shared with other products — excluded from EOL bottleneck">🔗 SHARED</span>' : '')
+                   + (isBn && !inHouse ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
+      const dim = inHouse ? 'opacity:.5' : '';
+      html += `<tr style="${rowBg}">
+        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
         <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
         <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}${c.hasOverride && c.qtyOHOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpOH)}</span>` : ''}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.openPO)}${c.hasOverride && c.openPOOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpPO)}</span>` : ''}</td>
-        <td style="text-align:right;font-family:var(--mono)">${fmt(c.avail)}</td>
-        <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(c.maxUnits)}</td>
+        <td style="text-align:right;font-family:var(--mono);${dim}">${fmt(c.avail)}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600;${dim}">${inHouse ? '∞' : fmt(c.maxUnits)}</td>
       </tr>`;
     });
     html += '</tbody></table></div></details>';
@@ -2897,7 +3036,10 @@ function addBOMComponent() {
   }
   bomComponents.push({
     compSku: sku, compName: mrp ? mrp.desc : input,
-    qtyPerParent: 1, qtyOHOverride: null, openPOOverride: null, sortOrder: bomComponents.length
+    qtyPerParent: 1, qtyOHOverride: null, openPOOverride: null,
+    produceInHouse: false,
+    sharedComponent: false,
+    sortOrder: bomComponents.length
   });
   document.getElementById('bom-add-comp').value = '';
   renderBOMCompTable();
@@ -2929,24 +3071,33 @@ function renderBOMCompTable() {
     const openPO = c.openPOOverride !== null && c.openPOOverride !== undefined ? +c.openPOOverride : mrpPO;
     const avail = qtyOH + openPO;
     const maxU = c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0;
-    if (maxU < maxBuildable) { maxBuildable = maxU; bottleneckSku = c.compSku; }
+    const inHouse = !!c.produceInHouse;
+    const shared  = !!c.sharedComponent;
+    // BOM editor preview = regular bottleneck (in-house excluded, shared still counts here)
+    if (!inHouse && maxU < maxBuildable) { maxBuildable = maxU; bottleneckSku = c.compSku; }
 
-    return `<tr>
-      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}</td>
+    const rowBg = inHouse ? 'background:rgba(0,163,225,.04)' : shared ? 'background:rgba(167,139,250,.04)' : '';
+    const badges = (inHouse ? ' <span style="color:var(--accent);font-size:9px;margin-left:4px" title="Produced in-house by demand — excluded from bottleneck">🏠 IN-HOUSE</span>' : '')
+                 + (shared  ? ' <span style="color:var(--overst);font-size:9px;margin-left:4px" title="Shared with other products — excluded from EOL bottleneck">🔗 SHARED</span>' : '');
+
+    const dimVal = inHouse ? 'opacity:.5' : '';
+    return `<tr style="${rowBg}">
+      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
       <td style="font-size:11px">${esc(c.compName || (mrp ? mrp.desc : ''))}</td>
       <td style="text-align:right"><input type="number" value="${c.qtyPerParent}" min="1" step="1" style="width:50px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyPerParent=+this.value;renderBOMCompTable()"></td>
       <td style="text-align:right">
         <input type="number" value="${qtyOH}" placeholder="${mrpOH}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyOHOverride=this.value===''?null:+this.value;renderBOMCompTable()">
         ${c.qtyOHOverride !== null && c.qtyOHOverride !== undefined ? `<div style="font-size:9px;color:var(--accent);margin-top:2px">MRP: ${fmt(mrpOH)}</div>` : ''}
       </td>
-      <td style="text-align:right">—</td>
       <td style="text-align:right">
         <input type="number" value="${openPO}" placeholder="${mrpPO}" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].openPOOverride=this.value===''?null:+this.value;renderBOMCompTable()">
         ${c.openPOOverride !== null && c.openPOOverride !== undefined ? `<div style="font-size:9px;color:var(--accent);margin-top:2px">MRP: ${fmt(mrpPO)}</div>` : ''}
       </td>
-      <td style="text-align:right;font-family:var(--mono)">${fmt(avail)}</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(maxU)}</td>
-      <td><span onclick="removeBOMComp(${idx})" style="cursor:pointer;color:var(--danger);font-size:14px">✕</span></td>
+      <td style="text-align:right;font-family:var(--mono);${dimVal}">${fmt(avail)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;${dimVal}">${inHouse ? '∞' : fmt(maxU)}</td>
+      <td style="text-align:center"><input type="checkbox" ${inHouse ? 'checked' : ''} onchange="bomComponents[${idx}].produceInHouse=this.checked;renderBOMCompTable()" title="Produce in-house by demand"></td>
+      <td style="text-align:center"><input type="checkbox" ${shared ? 'checked' : ''} onchange="bomComponents[${idx}].sharedComponent=this.checked;renderBOMCompTable()" title="Shared component — excluded from EOL bottleneck only"></td>
+      <td style="text-align:center"><span onclick="removeBOMComp(${idx})" style="cursor:pointer;color:var(--danger);font-size:14px" title="Remove from BOM">✕</span></td>
     </tr>`;
   }).join('');
 
@@ -2979,6 +3130,8 @@ async function saveBOM() {
       bom_id: bomEditId, component_sku: c.compSku, component_name: c.compName,
       qty_per_parent: c.qtyPerParent,
       qty_oh_override: c.qtyOHOverride, open_po_override: c.openPOOverride,
+      produce_in_house: !!c.produceInHouse,
+      shared_component: !!c.sharedComponent,
       sort_order: i
     }));
     await sbFetch('sp_bom_lines', { method: 'POST', body: lines, write: true, prefer: 'return=minimal' });
@@ -2994,6 +3147,8 @@ async function saveBOM() {
       bom_id: bomId, component_sku: c.compSku, component_name: c.compName,
       qty_per_parent: c.qtyPerParent,
       qty_oh_override: c.qtyOHOverride, open_po_override: c.openPOOverride,
+      produce_in_house: !!c.produceInHouse,
+      shared_component: !!c.sharedComponent,
       sort_order: i
     }));
     await sbFetch('sp_bom_lines', { method: 'POST', body: lines, write: true, prefer: 'return=minimal' });
@@ -3023,6 +3178,170 @@ async function deleteBOM(id) {
   await loadBOMsFromSupabase();
   renderBOMView();
   renderEOLView();
+}
+
+// ── FG Bulk Update from PS query ─────────────────────────
+let fgBulkPlan = []; // [{parentSku, descr, currentOH, newOH, bomId, status}]
+
+function handleFGBulkFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = ''; // allow re-select same file
+  const name = file.name.toLowerCase();
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let rows;
+    try {
+      if (name.endsWith('.csv')) {
+        rows = parseCSV(e.target.result);
+      } else {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      }
+    } catch (err) { alert('Failed to parse file: ' + err.message); return; }
+    buildFGBulkPlan(rows, file.name);
+  };
+  if (name.endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+function parseCSV(text) {
+  const out = [];
+  text.split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    // Simple CSV split — handles quoted fields with commas
+    const row = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (ch === ',' && !inQ) { row.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    row.push(cur);
+    out.push(row);
+  });
+  return out;
+}
+
+function buildFGBulkPlan(rows, fileName) {
+  if (!rows || rows.length < 2) { alert('File is empty or has no data rows.'); return; }
+
+  // Column candidates (lowercase, exact match after trim)
+  const skuCandidates  = ['inv_item_id', 'item_id', 'item', 'sku', 'parent_sku', 'parent sku', 'fg', 'fg sku'];
+  const qtyCandidates  = ['qty_available', 'qty available', 'qty owned', 'qty_owned', 'on_hand', 'on hand', 'qty_on_hand', 'qty on hand', 'qty', 'quantity'];
+  const descCandidates = ['descr', 'description', 'desc', 'name', 'item description'];
+
+  function findCol(hdrLower, cands) {
+    for (const c of cands) { const idx = hdrLower.indexOf(c); if (idx !== -1) return idx; }
+    return -1;
+  }
+
+  // Header may not be on row 0 (some PS exports prepend a title row). Scan the first 5 rows
+  // and use the first one where both an SKU column AND a Qty column are found.
+  let headerRowIdx = -1, header = [], headerLower = [];
+  let skuIdx = -1, qtyIdx = -1, descIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const tryHeader = (rows[i] || []).map(h => String(h || '').trim());
+    const tryLower  = tryHeader.map(h => h.toLowerCase());
+    const s = findCol(tryLower, skuCandidates);
+    const q = findCol(tryLower, qtyCandidates);
+    if (s !== -1 && q !== -1) {
+      headerRowIdx = i; header = tryHeader; headerLower = tryLower;
+      skuIdx = s; qtyIdx = q; descIdx = findCol(tryLower, descCandidates);
+      break;
+    }
+  }
+
+  if (headerRowIdx === -1) {
+    alert(`Could not find required columns in the first 5 rows.\n\nExpected SKU column (one of: ${skuCandidates.join(', ')}) and Qty column (one of: ${qtyCandidates.join(', ')}).\n\nFirst row found: ${(rows[0] || []).join(' | ')}`);
+    return;
+  }
+
+  const bomBySku = {};
+  bomList.forEach(b => { bomBySku[String(b.parentSku).trim().toUpperCase()] = b; });
+
+  const plan = [];
+  const dataRows = rows.slice(headerRowIdx + 1).filter(r => r && r.length && String(r[skuIdx] || '').trim());
+  let unmatched = 0, noChange = 0;
+  dataRows.forEach(r => {
+    const sku = String(r[skuIdx] || '').trim();
+    const qtyRaw = r[qtyIdx];
+    const newOH = +qtyRaw;
+    if (!isFinite(newOH)) return;
+    const descr = descIdx !== -1 ? String(r[descIdx] || '') : '';
+    const bom = bomBySku[sku.toUpperCase()];
+    if (!bom) { plan.push({ parentSku: sku, descr, currentOH: null, newOH, bomId: null, status: 'no-bom' }); unmatched++; return; }
+    const parentMRP = getMRPItem(bom.parentSku);
+    const mrpFG = parentMRP ? parentMRP.onHand : 0;
+    const currentOH = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : mrpFG;
+    const status = currentOH === newOH ? 'no-change' : 'will-update';
+    if (status === 'no-change') noChange++;
+    plan.push({ parentSku: bom.parentSku, descr: descr || bom.parentName || '', currentOH, newOH, bomId: bom.id, mrpFG, status });
+  });
+  fgBulkPlan = plan;
+
+  // UI
+  document.getElementById('fg-bulk-source').textContent = `· ${esc(fileName)}`;
+  document.getElementById('fg-bulk-mapping').innerHTML = `Detected columns → <b>${esc(header[skuIdx])}</b> as SKU, <b>${esc(header[qtyIdx])}</b> as Qty${descIdx !== -1 ? `, <b>${esc(header[descIdx])}</b> as Description` : ''}.`;
+  document.getElementById('fg-bulk-total').textContent     = dataRows.length.toLocaleString();
+  const matched = plan.filter(p => p.status === 'will-update').length;
+  document.getElementById('fg-bulk-matched').textContent   = matched.toLocaleString();
+  document.getElementById('fg-bulk-unmatched').textContent = unmatched.toLocaleString();
+  document.getElementById('fg-bulk-nochange').textContent  = noChange.toLocaleString();
+
+  document.getElementById('fg-bulk-preview-body').innerHTML = plan.map(p => {
+    const delta = p.currentOH !== null ? p.newOH - p.currentOH : null;
+    const deltaColor = delta === null ? 'var(--muted)' : delta > 0 ? 'var(--ok)' : delta < 0 ? 'var(--danger)' : 'var(--muted)';
+    const statusBadge = {
+      'will-update': '<span style="color:var(--ok);font-weight:600">✓ UPDATE</span>',
+      'no-change':   '<span style="color:var(--muted)">= no change</span>',
+      'no-bom':      '<span style="color:var(--warn)">⚠ NO BOM</span>',
+    }[p.status];
+    return `<tr style="${p.status === 'no-bom' ? 'background:rgba(251,191,36,.04);opacity:.7' : ''}">
+      <td style="font-family:var(--mono);font-size:11px">${esc(p.parentSku)}</td>
+      <td style="font-size:11px">${esc(p.descr)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${p.currentOH !== null ? fmt(p.currentOH) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(p.newOH)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${deltaColor}">${delta === null ? '—' : (delta > 0 ? '+' : '') + fmt(delta)}</td>
+      <td style="text-align:center;font-size:10px">${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('fg-bulk-status').textContent = '';
+  document.getElementById('fg-bulk-apply-btn').disabled = matched === 0;
+  document.getElementById('fg-bulk-modal').style.display = 'flex';
+}
+
+function closeFGBulkModal() {
+  document.getElementById('fg-bulk-modal').style.display = 'none';
+  fgBulkPlan = [];
+}
+
+async function applyFGBulkUpdate() {
+  const toUpdate = fgBulkPlan.filter(p => p.status === 'will-update' && p.bomId);
+  if (!toUpdate.length) { closeFGBulkModal(); return; }
+  const btn = document.getElementById('fg-bulk-apply-btn');
+  btn.disabled = true;
+  const statusEl = document.getElementById('fg-bulk-status');
+  let done = 0, failed = 0;
+  for (const p of toUpdate) {
+    const override = (p.newOH === p.mrpFG) ? null : p.newOH;
+    try {
+      await sbFetch(`sp_boms?id=eq.${p.bomId}`, {
+        method: 'PATCH', write: true, prefer: 'return=minimal',
+        body: { fg_oh_override: override, updated_at: new Date().toISOString() }
+      });
+      done++;
+    } catch (e) { failed++; }
+    statusEl.textContent = `Updating ${done + failed}/${toUpdate.length}…`;
+  }
+  await loadBOMsFromSupabase();
+  renderBOMView();
+  renderEOLView();
+  statusEl.textContent = `✓ Updated ${done} BOM${done === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}.`;
+  setTimeout(closeFGBulkModal, 1200);
 }
 
 // Load BOMs on startup
@@ -3235,8 +3554,10 @@ function renderEOLView() {
       const avail = qtyOH + openPO;
       return { ...c, mrp, qtyOH, openPO, avail, maxUnits: c.qtyPerParent > 0 ? Math.floor(avail / c.qtyPerParent) : 0 };
     });
-    const maxBuildable = compCalcs.length ? Math.min(...compCalcs.map(c => c.maxUnits)) : 0;
-    const bottleneck = compCalcs.length ? compCalcs.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
+    // EOL bottleneck excludes in-house AND shared components
+    const bottleneckCandidates = compCalcs.filter(c => !c.produceInHouse && !c.sharedComponent);
+    const maxBuildable = bottleneckCandidates.length ? Math.min(...bottleneckCandidates.map(c => c.maxUnits)) : 0;
+    const bottleneck = bottleneckCandidates.length ? bottleneckCandidates.reduce((min, c) => c.maxUnits < min.maxUnits ? c : min) : null;
     const parentMRP = getMRPItem(bom.parentSku);
     const mrpFG = parentMRP ? parentMRP.onHand : 0;
     const fgOH = bom.fgOHOverride !== null && bom.fgOHOverride !== undefined ? +bom.fgOHOverride : mrpFG;
@@ -3286,9 +3607,19 @@ function renderEOLView() {
         <th style="text-align:right">Avail</th><th style="text-align:right">Max Units</th>
       </tr></thead><tbody>`;
       fg.components.forEach(c => {
-        const isBn = c.compSku === fg.bottleneck;
-        html += `<tr style="${isBn ? 'background:rgba(251,191,36,.06)' : ''}">
-          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : ''}</td>
+        const inHouse = !!c.produceInHouse;
+        const shared  = !!c.sharedComponent;
+        const excluded = inHouse || shared;
+        const isBn = !excluded && c.compSku === fg.bottleneck;
+        const rowBg = inHouse ? 'background:rgba(0,163,225,.05)'
+                     : shared ? 'background:rgba(167,139,250,.05)'
+                     : isBn   ? 'background:rgba(251,191,36,.06)' : '';
+        const badges = (inHouse ? ' <span style="color:var(--accent);font-size:9px" title="Produced in-house by demand — excluded from EOL bottleneck">🏠 IN-HOUSE</span>' : '')
+                     + (shared  ? ' <span style="color:var(--overst);font-size:9px" title="Shared with other products — excluded from EOL bottleneck">🔗 SHARED</span>' : '')
+                     + (isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
+        const dim = excluded ? 'opacity:.5' : '';
+        html += `<tr style="${rowBg};${dim}">
+          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
           <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
           <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
@@ -3617,6 +3948,130 @@ function addToWatchlist(wIdx) {
   renderEOLView();
 }
 
+// ── Watchlist bulk-add ─────────────────────────
+let bulkAddCtx = { wIdx: -1, mode: 'boms', bomChecked: new Set(), itemChecked: new Set() };
+
+function openBulkAddModal(wIdx) {
+  bulkAddCtx = { wIdx, mode: 'boms', bomChecked: new Set(), itemChecked: new Set() };
+  document.getElementById('wl-bulk-name').textContent = watchlists[wIdx].name;
+  switchBulkMode('boms');
+  document.getElementById('wl-bulk-modal').style.display = 'flex';
+}
+
+function closeBulkAddModal() {
+  document.getElementById('wl-bulk-modal').style.display = 'none';
+}
+
+function switchBulkMode(mode) {
+  bulkAddCtx.mode = mode;
+  const isBoms = mode === 'boms';
+  document.getElementById('wl-bulk-boms-panel').style.display  = isBoms ? '' : 'none';
+  document.getElementById('wl-bulk-items-panel').style.display = isBoms ? 'none' : '';
+  document.getElementById('wl-bulk-tab-boms').style.borderBottomColor  = isBoms ? 'var(--accent)' : 'transparent';
+  document.getElementById('wl-bulk-tab-items').style.borderBottomColor = isBoms ? 'transparent' : 'var(--accent)';
+  if (isBoms) renderBulkBomList(); else renderBulkItemList();
+  updateBulkSummary();
+}
+
+function renderBulkBomList() {
+  const list = document.getElementById('wl-bulk-bom-list');
+  if (!bomList.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px;text-align:center">No BOMs created yet. Go to the BOMs tab to create one.</div>';
+    return;
+  }
+  list.innerHTML = bomList.map(bom => {
+    const ck = bulkAddCtx.bomChecked.has(bom.id) ? 'checked' : '';
+    const compCount = bom.components.length;
+    return `<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;cursor:pointer">
+      <input type="checkbox" ${ck} onchange="toggleBulkBom('${esc(bom.id)}',this.checked)">
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent)">${esc(bom.parentSku)}</span>
+      <span style="font-size:11px;color:var(--muted);flex:1">${esc(bom.parentName || '')}</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(0,163,225,.12);color:var(--accent);font-weight:600">${compCount} components</span>
+    </label>`;
+  }).join('');
+}
+
+function toggleBulkBom(bomId, checked) {
+  if (checked) bulkAddCtx.bomChecked.add(bomId);
+  else bulkAddCtx.bomChecked.delete(bomId);
+  updateBulkSummary();
+}
+
+function renderBulkItemList() {
+  const list = document.getElementById('wl-bulk-items-list');
+  const search = (document.getElementById('wl-bulk-items-search').value || '').toLowerCase();
+  const existing = new Set(watchlists[bulkAddCtx.wIdx].items);
+  // Source from rawItems so we cover everything in the latest MRP
+  const candidates = rawItems.filter(i => {
+    if (existing.has(i.itemId)) return false; // skip already-in-watchlist
+    if (!search) return true;
+    return `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase().includes(search);
+  });
+  document.getElementById('wl-bulk-items-count').textContent = `${candidates.length} items`;
+  if (!candidates.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:14px;text-align:center">No matching items.</div>';
+    return;
+  }
+  list.innerHTML = candidates.slice(0, 500).map(i => {
+    const ck = bulkAddCtx.itemChecked.has(i.itemId) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='transparent'">
+      <input type="checkbox" ${ck} onchange="toggleBulkItem('${esc(i.itemId)}',this.checked)">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--accent);min-width:120px">${esc(i.itemId)}</span>
+      <span style="font-size:11px;flex:1">${esc(i.desc)}</span>
+      <span style="font-size:10px;color:var(--muted)">${esc(i.suppName || '')}</span>
+    </label>`;
+  }).join('') + (candidates.length > 500 ? `<div style="font-size:10px;color:var(--muted);padding:8px;text-align:center">Showing first 500 of ${candidates.length}. Refine search to narrow.</div>` : '');
+}
+
+function filterBulkItemList() { renderBulkItemList(); }
+
+function toggleBulkItem(itemId, checked) {
+  if (checked) bulkAddCtx.itemChecked.add(itemId);
+  else bulkAddCtx.itemChecked.delete(itemId);
+  updateBulkSummary();
+}
+
+function bulkSelectAllVisible(select) {
+  const existing = new Set(watchlists[bulkAddCtx.wIdx].items);
+  const search = (document.getElementById('wl-bulk-items-search').value || '').toLowerCase();
+  const visible = rawItems.filter(i => {
+    if (existing.has(i.itemId)) return false;
+    if (!search) return true;
+    return `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase().includes(search);
+  }).slice(0, 500);
+  visible.forEach(i => { if (select) bulkAddCtx.itemChecked.add(i.itemId); else bulkAddCtx.itemChecked.delete(i.itemId); });
+  renderBulkItemList();
+  updateBulkSummary();
+}
+
+function bulkResolveSelectedItemIds() {
+  const existing = new Set(watchlists[bulkAddCtx.wIdx].items);
+  const out = new Set();
+  if (bulkAddCtx.mode === 'boms') {
+    bomList.filter(b => bulkAddCtx.bomChecked.has(b.id)).forEach(b => {
+      if (!existing.has(b.parentSku)) out.add(b.parentSku);
+      b.components.forEach(c => { if (!existing.has(c.compSku)) out.add(c.compSku); });
+    });
+  } else {
+    bulkAddCtx.itemChecked.forEach(id => { if (!existing.has(id)) out.add(id); });
+  }
+  return [...out];
+}
+
+function updateBulkSummary() {
+  const ids = bulkResolveSelectedItemIds();
+  document.getElementById('wl-bulk-summary').textContent = ids.length ? `${ids.length} new item${ids.length === 1 ? '' : 's'} will be added` : 'Nothing selected';
+}
+
+function submitBulkAdd() {
+  const ids = bulkResolveSelectedItemIds();
+  if (!ids.length) { closeBulkAddModal(); return; }
+  watchlists[bulkAddCtx.wIdx].items.push(...ids);
+  saveWatchlists();
+  closeBulkAddModal();
+  renderEOLView();
+}
+
 function removeFromWatchlist(wIdx, itemId) {
   watchlists[wIdx].items = watchlists[wIdx].items.filter(id => id !== itemId);
   saveWatchlists();
@@ -3720,12 +4175,13 @@ function renderWatchlists(byDate, dates, allItemsList) {
         ${totalChange !== null ? `<span style="margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:${tcColor}">${totalChange >= 0 ? '+' : ''}$${fmtK(totalChange)}</span>` : ''}
       </summary>
       <div style="padding:0 16px 12px">
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
           <select id="wl-add-${wIdx}" style="font-size:11px;width:250px">
             <option value="">— Add item —</option>
             ${allItemsList.map(id => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}
           </select>
           <button class="btn btn-sm" onclick="addToWatchlist(${wIdx})">Add</button>
+          <button class="btn btn-sm btn-accent" onclick="openBulkAddModal(${wIdx})" title="Bulk add from BOMs or item list">🗂 Bulk Add</button>
           <button class="btn btn-sm" onclick="deleteWatchlist(${wIdx})" style="margin-left:auto;color:var(--danger);font-size:10px">Delete Watchlist</button>
         </div>
         ${chartHtml}
