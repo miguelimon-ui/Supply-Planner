@@ -648,6 +648,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <span style="font-weight:600;font-size:13px;color:var(--text)">Bill of Materials</span>
       <span class="result-count" id="bom-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="openPLImportModal()" title="Import BOM from Product Library (library.mindenops.com)">🧬 Import from Product Library</button>
         <button class="btn btn-sm" onclick="document.getElementById('fg-bulk-input').click()" title="Upload PeopleSoft FG inventory query to bulk-update FG On Hand">📥 Bulk Update FG On Hand</button>
         <input type="file" id="fg-bulk-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFGBulkFile(event)">
         <button class="btn btn-sm btn-accent" onclick="showBOMCreate()">+ New BOM</button>
@@ -746,6 +747,76 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <span id="fg-bulk-status" style="margin-right:auto;font-size:11px;color:var(--muted)"></span>
         <button class="btn btn-sm" onclick="closeFGBulkModal()">Cancel</button>
         <button class="btn btn-sm btn-accent" id="fg-bulk-apply-btn" onclick="applyFGBulkUpdate()">Apply Update</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCT LIBRARY IMPORT MODAL -->
+  <div id="pl-import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:95%;max-width:1000px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:700;font-size:14px">🧬 Import from Product Library</span>
+        <span style="font-size:11px;color:var(--muted)">3,038 approved BOMs from library.mindenops.com</span>
+        <span style="margin-left:auto;cursor:pointer;font-size:18px;color:var(--muted)" onclick="closePLImportModal()">✕</span>
+      </div>
+      <div style="padding:14px 20px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:12px">
+        <!-- Step 1: search -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px">1️⃣ Search a parent SKU or description</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="pl-search" placeholder="e.g. AT62, 60112, backplate…" oninput="debouncePLSearch()" style="flex:1;font-size:12px">
+            <select id="pl-type-filter" onchange="renderPLResults()" style="font-size:11px">
+              <option value="">All types</option>
+              <option value="FG">FG (Finished Good)</option>
+              <option value="SFG">SFG (Sub-Assembly)</option>
+              <option value="component">Component</option>
+              <option value="raw_material">Raw Material</option>
+            </select>
+            <span id="pl-search-count" style="font-size:10px;color:var(--muted);white-space:nowrap"></span>
+          </div>
+        </div>
+        <!-- Step 2: results with checkboxes -->
+        <div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:6px;max-height:35vh">
+          <div id="pl-results">
+            <div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">Type in the search box to find BOMs.</div>
+          </div>
+        </div>
+        <!-- Step 3: preview tree -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px;display:flex;gap:12px;align-items:center">
+            <span>2️⃣ Preview (recursively includes sub-BOMs as separate BOMs)</span>
+            <label style="font-weight:400;color:var(--muted);font-size:10px;display:flex;gap:4px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="pl-include-sub" checked onchange="rebuildPLPreview()"> Include sub-BOMs
+            </label>
+            <span id="pl-preview-summary" style="margin-left:auto;color:var(--muted);font-size:10px"></span>
+          </div>
+          <div id="pl-preview" style="border:1px solid var(--border);border-radius:6px;padding:8px;max-height:25vh;overflow:auto;font-size:11px;font-family:var(--mono);background:var(--bg3)">
+            <div style="color:var(--muted);text-align:center;padding:14px">Select one or more BOMs above to see the import preview.</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center">
+        <span id="pl-import-status" style="margin-right:auto;font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="closePLImportModal()">Cancel</button>
+        <button class="btn btn-sm btn-accent" id="pl-import-btn" onclick="applyPLImport()">Import Selected BOMs</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHERE-USED MODAL -->
+  <div id="wu-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:95%;max-width:820px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:700;font-size:14px">🔍 Where Used: <span id="wu-sku" style="color:var(--accent);font-family:var(--mono)"></span></span>
+        <span id="wu-desc" style="font-size:11px;color:var(--muted);flex:1"></span>
+        <span style="cursor:pointer;font-size:18px;color:var(--muted)" onclick="closeWhereUsedModal()">✕</span>
+      </div>
+      <div style="padding:14px 20px;overflow:auto;flex:1" id="wu-body">
+        <div style="text-align:center;color:var(--muted);padding:40px 0;font-size:12px">Loading…</div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center">
+        <span id="wu-status" style="margin-right:auto;font-size:11px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="closeWhereUsedModal()">Close</button>
       </div>
     </div>
   </div>
@@ -2962,7 +3033,7 @@ function renderBOMView() {
                    + (isBn && !inHouse ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
       const dim = inHouse ? 'opacity:.5' : '';
       html += `<tr style="${rowBg}">
-        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
+        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}','${esc(bom.id)}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
         <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
         <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}${c.hasOverride && c.qtyOHOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpOH)}</span>` : ''}</td>
@@ -3082,7 +3153,7 @@ function renderBOMCompTable() {
 
     const dimVal = inHouse ? 'opacity:.5' : '';
     return `<tr style="${rowBg}">
-      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
+      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${bomEditId ? "'"+esc(bomEditId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
       <td style="font-size:11px">${esc(c.compName || (mrp ? mrp.desc : ''))}</td>
       <td style="text-align:right"><input type="number" value="${c.qtyPerParent}" min="1" step="1" style="width:50px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyPerParent=+this.value;renderBOMCompTable()"></td>
       <td style="text-align:right">
@@ -3342,6 +3413,361 @@ async function applyFGBulkUpdate() {
   renderEOLView();
   statusEl.textContent = `✓ Updated ${done} BOM${done === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}.`;
   setTimeout(closeFGBulkModal, 1200);
+}
+
+// ── Product Library Import (Option C: one BOM per level) ───────────────
+// State
+let plSearchResults = [];  // items matching search that have a bom_header
+let plSelected = new Map(); // itemId -> {sku, description, type, header_id}
+let plPreviewPlan = [];    // [{sku, name, type, level, componentCount, alreadyExists, headerId, sourceParentSku}]
+let plSearchTimer = null;
+
+function openPLImportModal() {
+  document.getElementById('pl-search').value = '';
+  document.getElementById('pl-type-filter').value = '';
+  document.getElementById('pl-include-sub').checked = true;
+  plSearchResults = []; plSelected.clear(); plPreviewPlan = [];
+  document.getElementById('pl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">Type in the search box to find BOMs.</div>';
+  document.getElementById('pl-preview').innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Select one or more BOMs above to see the import preview.</div>';
+  document.getElementById('pl-preview-summary').textContent = '';
+  document.getElementById('pl-search-count').textContent = '';
+  document.getElementById('pl-import-status').textContent = '';
+  document.getElementById('pl-import-btn').disabled = true;
+  document.getElementById('pl-import-modal').style.display = 'flex';
+}
+
+function closePLImportModal() {
+  document.getElementById('pl-import-modal').style.display = 'none';
+}
+
+function debouncePLSearch() {
+  clearTimeout(plSearchTimer);
+  plSearchTimer = setTimeout(runPLSearch, 300);
+}
+
+async function runPLSearch() {
+  const q = document.getElementById('pl-search').value.trim();
+  if (!q) {
+    document.getElementById('pl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">Type in the search box to find BOMs.</div>';
+    document.getElementById('pl-search-count').textContent = '';
+    return;
+  }
+  document.getElementById('pl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">Searching…</div>';
+  const enc = encodeURIComponent(q);
+  // Search items by sku OR description ilike. Only return items that HAVE a bom_header (inner join).
+  const path = `items?select=id,sku,description,type,status,bom_headers!inner(id,status,version)&or=(sku.ilike.*${enc}*,description.ilike.*${enc}*)&bom_headers.status=eq.approved&limit=200`;
+  try {
+    plSearchResults = (await sbFetch(path)) || [];
+  } catch (e) {
+    document.getElementById('pl-results').innerHTML = `<div style="padding:20px;text-align:center;color:var(--danger);font-size:11px">Search failed: ${esc(e.message||e)}</div>`;
+    return;
+  }
+  renderPLResults();
+}
+
+function renderPLResults() {
+  const list = document.getElementById('pl-results');
+  const typeFilter = document.getElementById('pl-type-filter').value;
+  const rows = plSearchResults.filter(r => !typeFilter || r.type === typeFilter);
+  document.getElementById('pl-search-count').textContent = `${rows.length} match${rows.length === 1 ? '' : 'es'}`;
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">No BOMs match. Try a broader search.</div>';
+    return;
+  }
+  const existing = new Set(bomList.map(b => String(b.parentSku).trim().toUpperCase()));
+  list.innerHTML = rows.map(r => {
+    const inSP = existing.has(String(r.sku).trim().toUpperCase());
+    const header = (r.bom_headers && r.bom_headers[0]) || {};
+    const ck = plSelected.has(r.id) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" ${ck} ${inSP ? 'disabled title="Already in Supply Planner"' : ''} onchange="togglePLItem('${esc(r.id)}',this.checked)">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--accent);min-width:110px">${esc(r.sku)}</span>
+      <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(148,163,184,.12);color:var(--muted);min-width:70px;text-align:center">${esc(r.type||'—')}</span>
+      <span style="font-size:11px;flex:1">${esc(r.description||'')}</span>
+      <span style="font-size:10px;color:var(--muted)">v${header.version||1}</span>
+      ${inSP ? '<span style="font-size:9px;color:var(--warn)">already in SP</span>' : ''}
+    </label>`;
+  }).join('');
+}
+
+function togglePLItem(itemId, checked) {
+  const item = plSearchResults.find(r => r.id === itemId);
+  if (!item) return;
+  const header = (item.bom_headers && item.bom_headers[0]) || {};
+  if (checked) plSelected.set(itemId, { id: item.id, sku: item.sku, description: item.description, type: item.type, header_id: header.id });
+  else plSelected.delete(itemId);
+  rebuildPLPreview();
+}
+
+async function rebuildPLPreview() {
+  const previewEl = document.getElementById('pl-preview');
+  if (!plSelected.size) {
+    previewEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Select one or more BOMs above to see the import preview.</div>';
+    document.getElementById('pl-preview-summary').textContent = '';
+    document.getElementById('pl-import-btn').disabled = true;
+    plPreviewPlan = [];
+    return;
+  }
+  previewEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Loading BOM tree…</div>';
+
+  const includeSub = document.getElementById('pl-include-sub').checked;
+  const existing = new Set(bomList.map(b => String(b.parentSku).trim().toUpperCase()));
+
+  // For each selected item, walk BOM tree. Each node becomes its own BOM in the plan.
+  // Prevent infinite loops via visited set.
+  const visitedItemIds = new Set();
+  const plan = []; // [{sku, name, type, level, header_id, componentCount, alreadyExists, components:[{sku,name,type,qty,unit,isSubBOM,subHeaderId}]}]
+
+  async function walk(itemId, level, sourceParentSku) {
+    if (visitedItemIds.has(itemId)) return;
+    visitedItemIds.add(itemId);
+
+    // Get parent item + its bom_header
+    const itemRes = await sbFetch(`items?id=eq.${itemId}&select=sku,description,type,bom_headers!inner(id,status)&bom_headers.status=eq.approved`);
+    if (!itemRes || !itemRes.length) return;
+    const it = itemRes[0];
+    const header = (it.bom_headers && it.bom_headers[0]) || {};
+    if (!header.id) return;
+
+    // Get children
+    const lines = await sbFetch(`bom_lines?bom_header_id=eq.${header.id}&select=quantity,unit,child_item_id,items:child_item_id(id,sku,description,type,bom_headers!left(id,status))&order=sort_order.asc.nullslast`) || [];
+
+    const components = lines.map(l => {
+      const c = l.items || {};
+      const childHeader = (c.bom_headers || []).find(h => h.status === 'approved');
+      return {
+        childItemId: c.id, sku: c.sku, name: c.description, type: c.type,
+        qty: +l.quantity || 0, unit: l.unit || 'EA',
+        isSubBOM: !!childHeader, subHeaderId: childHeader ? childHeader.id : null,
+      };
+    });
+
+    plan.push({
+      itemId, sku: it.sku, name: it.description, type: it.type,
+      level, header_id: header.id, componentCount: components.length,
+      alreadyExists: existing.has(String(it.sku).trim().toUpperCase()),
+      components, sourceParentSku,
+    });
+
+    if (includeSub) {
+      for (const c of components) {
+        if (c.isSubBOM && !visitedItemIds.has(c.childItemId)) {
+          await walk(c.childItemId, level + 1, it.sku);
+        }
+      }
+    }
+  }
+
+  for (const sel of plSelected.values()) {
+    await walk(sel.id, 0, null);
+  }
+
+  plPreviewPlan = plan;
+  renderPLPreviewTree();
+}
+
+function renderPLPreviewTree() {
+  const previewEl = document.getElementById('pl-preview');
+  const willImport = plPreviewPlan.filter(p => !p.alreadyExists).length;
+  const willSkip   = plPreviewPlan.filter(p =>  p.alreadyExists).length;
+  document.getElementById('pl-preview-summary').textContent = `${willImport} BOM${willImport===1?'':'s'} to create · ${willSkip} skipped (already in SP)`;
+  document.getElementById('pl-import-btn').disabled = willImport === 0;
+
+  if (!plPreviewPlan.length) {
+    previewEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Nothing to import.</div>';
+    return;
+  }
+  previewEl.innerHTML = plPreviewPlan.map(p => {
+    const indent = '&nbsp;'.repeat(p.level * 4);
+    const status = p.alreadyExists
+      ? '<span style="color:var(--warn);font-size:10px">⚠ SKIP (in SP)</span>'
+      : '<span style="color:var(--ok);font-size:10px">✓ CREATE</span>';
+    const arrow = p.level > 0 ? `<span style="color:var(--muted)">└─ (sub-BOM of ${esc(p.sourceParentSku||'?')})</span> ` : '';
+    return `<div style="padding:3px 0;border-bottom:1px dashed rgba(148,163,184,.15)">
+      ${indent}${arrow}<span style="color:var(--accent);font-weight:600">${esc(p.sku)}</span>
+      <span style="color:var(--muted)">— ${esc(p.name||'')}</span>
+      <span style="color:var(--muted);font-size:10px">· ${p.componentCount} components · type ${esc(p.type||'—')}</span>
+      ${status}
+    </div>`;
+  }).join('');
+}
+
+async function applyPLImport() {
+  const toCreate = plPreviewPlan.filter(p => !p.alreadyExists);
+  if (!toCreate.length) { closePLImportModal(); return; }
+  const btn = document.getElementById('pl-import-btn');
+  btn.disabled = true;
+  const statusEl = document.getElementById('pl-import-status');
+  let done = 0, failed = 0;
+  for (const p of toCreate) {
+    try {
+      // 1. Create sp_boms row
+      const bomRes = await sbFetch('sp_boms', {
+        method: 'POST', write: true, headers: { 'Prefer': 'return=representation' },
+        body: { parent_sku: p.sku, parent_name: p.name || '' }
+      });
+      if (!bomRes || !bomRes.length) throw new Error('Failed to insert sp_boms');
+      const bomId = bomRes[0].id;
+      // 2. Create sp_bom_lines rows
+      if (p.components.length) {
+        const lines = p.components.map((c, i) => ({
+          bom_id: bomId, component_sku: c.sku, component_name: c.name || '',
+          qty_per_parent: c.qty || 1,
+          qty_oh_override: null, open_po_override: null,
+          produce_in_house: false, shared_component: false,
+          sort_order: i,
+        }));
+        await sbFetch('sp_bom_lines', { method: 'POST', body: lines, write: true, prefer: 'return=minimal' });
+      }
+      done++;
+    } catch (e) { failed++; console.warn('Import failed for', p.sku, e); }
+    statusEl.textContent = `Importing ${done + failed}/${toCreate.length}…`;
+  }
+  await loadBOMsFromSupabase();
+  renderBOMView();
+  renderEOLView();
+  statusEl.textContent = `✓ Imported ${done} BOM${done===1?'':'s'}${failed?` · ${failed} failed`:''}.`;
+  setTimeout(closePLImportModal, 1400);
+}
+
+// ── Where-Used drill-down ─────────────────────────────────────
+let wuContext = { componentSku: '', bomId: null };
+
+async function openWhereUsedModal(componentSku, bomIdContext) {
+  wuContext = { componentSku, bomId: bomIdContext || null };
+  document.getElementById('wu-sku').textContent = componentSku;
+  document.getElementById('wu-desc').textContent = '';
+  document.getElementById('wu-status').textContent = '';
+  document.getElementById('wu-body').innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px 0;font-size:12px">Loading…</div>';
+  document.getElementById('wu-modal').style.display = 'flex';
+
+  try {
+    // 1. Find the item in Product Library by SKU
+    const items = await sbFetch(`items?sku=eq.${encodeURIComponent(componentSku)}&select=id,sku,description,type,status`);
+    if (!items || !items.length) {
+      document.getElementById('wu-body').innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px 0;font-size:12px">SKU <b>${esc(componentSku)}</b> not found in Product Library.<br><span style="font-size:10px">This component may be internal-only or not yet catalogued.</span></div>`;
+      return;
+    }
+    const item = items[0];
+    document.getElementById('wu-desc').textContent = item.description || '';
+
+    // 2. Find all bom_lines that reference this child_item_id (where-used)
+    const lines = await sbFetch(`bom_lines?child_item_id=eq.${item.id}&select=quantity,unit,bom_headers!inner(id,status,parent_item_id,items:parent_item_id(sku,description,type,status))&bom_headers.status=eq.approved&limit=500`);
+    renderWhereUsed(item, lines || []);
+  } catch (e) {
+    document.getElementById('wu-body').innerHTML = `<div style="text-align:center;color:var(--danger);padding:40px 0;font-size:12px">Load failed: ${esc(e.message||e)}</div>`;
+  }
+}
+
+function closeWhereUsedModal() {
+  document.getElementById('wu-modal').style.display = 'none';
+}
+
+function renderWhereUsed(item, lines) {
+  const body = document.getElementById('wu-body');
+  if (!lines.length) {
+    body.innerHTML = `<div style="text-align:center;padding:30px 0"><div style="font-size:32px;margin-bottom:8px">🎯</div><div style="font-size:13px;font-weight:600">Not used anywhere else</div><div style="font-size:11px;color:var(--muted);margin-top:6px">This component only appears in the current context (or no other approved BOMs use it).</div></div>`;
+    return;
+  }
+
+  // Map to unique parents
+  const spExisting = new Set(bomList.map(b => String(b.parentSku).trim().toUpperCase()));
+  const parents = lines.map(l => {
+    const h = l.bom_headers || {};
+    const parent = h.items || {};
+    const mrp = getMRPItem(parent.sku);
+    const is = getIS(parent.sku);
+    return {
+      sku: parent.sku, name: parent.description, type: parent.type, itemStatus: parent.status,
+      qty: +l.quantity, unit: l.unit,
+      inSP: spExisting.has(String(parent.sku||'').trim().toUpperCase()),
+      spIS: is, mau: mrp ? mrp.mau : null, onHand: mrp ? mrp.onHand : null,
+    };
+  });
+  // De-dupe by sku (shouldn't have multiples per approved header but be safe)
+  const bySku = {};
+  parents.forEach(p => { if (!bySku[p.sku] || (p.qty > bySku[p.sku].qty)) bySku[p.sku] = p; });
+  const unique = Object.values(bySku).sort((a,b) => (a.itemStatus||'').localeCompare(b.itemStatus||'') || a.sku.localeCompare(b.sku));
+
+  // Sum MAU of active parents
+  const active = unique.filter(p => (p.itemStatus === 'active') && !['non_plan','eol','discontinued'].includes(p.spIS));
+  const totalMau = active.reduce((s, p) => s + (p.mau || 0) * p.qty, 0);
+  const activeCount = active.length;
+
+  // Suggest Shared flag if used in >1 active parent AND we're in a BOM context
+  const suggestShared = wuContext.bomId && activeCount > 1;
+
+  const inSPcount = unique.filter(p => p.inSP).length;
+  const notInSPcount = unique.length - inSPcount;
+
+  let html = `<div style="display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+    <div class="stat"><div class="stat-v" style="color:var(--text)">${unique.length}</div><div class="stat-l">Total parents</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--ok)">${activeCount}</div><div class="stat-l">Active</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--accent)">${inSPcount}</div><div class="stat-l">Already in SP</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--warn)">${notInSPcount}</div><div class="stat-l">Not in SP</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--overst)">${totalMau > 0 ? totalMau.toFixed(1) : '—'}</div><div class="stat-l">Total MAU (weighted)</div></div>
+  </div>`;
+
+  if (suggestShared) {
+    html += `<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.3);border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:18px">🔗</span>
+      <div style="flex:1;font-size:11px">
+        <div style="font-weight:600;color:var(--overst);margin-bottom:2px">This component is used in ${activeCount} active parents.</div>
+        <div style="color:var(--muted)">Consider marking it as SHARED in the current BOM so it doesn't restrict EOL bottleneck.</div>
+      </div>
+      <button class="btn btn-sm btn-accent" onclick="markCurrentAsShared('${esc(item.sku)}')">🔗 Mark as Shared</button>
+    </div>`;
+  }
+
+  html += `<table class="po-table" style="margin:0"><thead><tr>
+    <th>Parent SKU</th><th>Description</th>
+    <th style="text-align:center">Type</th>
+    <th style="text-align:center">Status</th>
+    <th style="text-align:right">Qty/parent</th>
+    <th style="text-align:right">Parent MAU</th>
+    <th style="text-align:right">Parent OH</th>
+    <th style="text-align:center">In SP?</th>
+  </tr></thead><tbody>`;
+
+  html += unique.map(p => {
+    const statusColor = p.itemStatus === 'active' ? 'var(--ok)' : p.itemStatus === 'eol' ? '#e879f9' : p.itemStatus === 'discontinued' ? 'var(--danger)' : 'var(--muted)';
+    const spBadge = p.inSP
+      ? `<span style="color:var(--ok);font-size:10px">✓ ${p.spIS ? esc(p.spIS) : 'in SP'}</span>`
+      : '<span style="color:var(--muted);font-size:10px">—</span>';
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(p.sku)}</td>
+      <td style="font-size:11px">${esc(p.name||'')}</td>
+      <td style="text-align:center;font-size:10px;color:var(--muted)">${esc(p.type||'—')}</td>
+      <td style="text-align:center;font-size:10px;color:${statusColor};font-weight:600">${esc(p.itemStatus||'—')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${p.qty} ${esc(p.unit||'')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${p.mau !== null && p.mau > 0 ? p.mau.toFixed(1) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${p.onHand !== null ? fmt(p.onHand) : '—'}</td>
+      <td style="text-align:center">${spBadge}</td>
+    </tr>`;
+  }).join('');
+  html += '</tbody></table>';
+
+  body.innerHTML = html;
+}
+
+async function markCurrentAsShared(componentSku) {
+  const bomId = wuContext.bomId;
+  if (!bomId) { alert('No BOM context — open Where-Used from a BOM row to enable this shortcut.'); return; }
+  const bom = bomList.find(b => b.id === bomId);
+  if (!bom) { alert('BOM not found in current list.'); return; }
+  const line = bom.components.find(c => String(c.compSku).trim().toUpperCase() === String(componentSku).trim().toUpperCase());
+  if (!line || !line.id) { alert('Component line not found in the current BOM.'); return; }
+  try {
+    await sbFetch(`sp_bom_lines?id=eq.${line.id}`, {
+      method: 'PATCH', write: true, prefer: 'return=minimal',
+      body: { shared_component: true }
+    });
+    document.getElementById('wu-status').textContent = `✓ Marked ${componentSku} as SHARED in current BOM.`;
+    await loadBOMsFromSupabase();
+    renderBOMView(); renderEOLView();
+  } catch (e) {
+    document.getElementById('wu-status').textContent = `⚠ Failed: ${e.message || e}`;
+  }
 }
 
 // Load BOMs on startup
@@ -3619,7 +4045,7 @@ function renderEOLView() {
                      + (isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
         const dim = excluded ? 'opacity:.5' : '';
         html += `<tr style="${rowBg};${dim}">
-          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)}${badges}</td>
+          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${fg.bomId ? "'"+esc(fg.bomId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
           <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
           <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
