@@ -5639,7 +5639,8 @@ function trufigMapMRPRow(r) {
     totalUsage: +r.total_usage || 0, mau: +r.mau || 0, rawMau: +r.mau || 0, projMau: +r.proj_mau || (+r.mau || 0),
     erpPOs: Array.isArray(r.erp_pos) ? r.erp_pos.map(n => +n || 0) : new Array(12).fill(0),
     ebBalances: Array.isArray(r.eb_balances) ? r.eb_balances : [],
-    source: r._source || 'main', // 'instor' | 'main'
+    qtyByUnit: (r.qty_by_unit && typeof r.qty_by_unit === 'object') ? r.qty_by_unit : {},
+    source: r._source || 'main', // 'instor' | 'main' | 'ss-only'
   };
 }
 
@@ -5740,6 +5741,28 @@ function recalcTrufig() {
   renderTrufigTable();
 }
 
+// Render the On Hand cell for Trufig Plan.
+// - Main number = qty in MNDIN (what the plan actually uses)
+// - Show '+N in X other BU' hint when other BUs hold stock
+// - Full breakdown as title tooltip: "MNDIN: 100 · AMZIN: 20 · DANA1: 50"
+function renderOnHandCell(it) {
+  const byUnit = it.qtyByUnit || {};
+  const units = Object.keys(byUnit).filter(u => (+byUnit[u] || 0) > 0);
+  const mainQty = it.onHand; // populated from MNDIN by loader/upload
+  const otherUnits = units.filter(u => u !== 'MNDIN');
+  const otherTotal = otherUnits.reduce((s, u) => s + (+byUnit[u] || 0), 0);
+  const mainDisp = fmt(mainQty);
+  if (!otherUnits.length && !units.length) return mainDisp; // no breakdown data
+  const tooltip = units.map(u => `${u}: ${fmt(+byUnit[u] || 0)}`).join(' · ');
+  const extra = otherTotal > 0
+    ? `<span style="display:block;font-size:9px;color:var(--muted)" title="${esc(tooltip)}">+${fmt(otherTotal)} in ${otherUnits.length} BU${otherUnits.length===1?'':'s'}</span>`
+    : '';
+  const mndinLabel = mainQty === 0 && otherTotal > 0
+    ? '<span style="display:block;font-size:9px;color:var(--warn)" title="No inventory in MNDIN — the plan calc assumes 0. Other BUs shown below aren\'t consumed by the reorder formula.">⚠ 0 in MNDIN</span>'
+    : '';
+  return `<span title="${esc(tooltip)}">${mainDisp}</span>${mndinLabel}${extra}`;
+}
+
 function renderTrufigTable() {
   if (!rawItemsTrufig.length) {
     document.getElementById('tf-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>';
@@ -5816,7 +5839,7 @@ function renderTrufigTable() {
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(it.itemId)}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(it.desc||'')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.onHand)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${renderOnHandCell(it)}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.mauSource==='derived' ? 'var(--accent)' : 'var(--muted)'}">${it.mau > 0 ? it.mau.toFixed(1) : '—'}${mauMark}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.effectiveSSSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${fmt(it.effectiveSS)}${ssMark}</td>
@@ -5875,8 +5898,10 @@ async function applyInstor(rows, fileName) {
   const valCandidates = ['total value','total_value','extended value','extended_value','oh value','oh_value'];
   const mauCandidates = ['ttm','last 12 month sales monthly run rate','monthly run rate','mau','proj mau','avg monthly usage'];
 
+  // Also detect Unit column for per-BU breakdown (Instor is a Unit×Location dump)
+  const unitCandidates = ['unit','business unit','bu','business_unit'];
   let hdrIdx = -1, skuIdx = -1, ohIdx = -1;
-  let descIdx = -1, costIdx = -1, valIdx = -1, mauIdx = -1;
+  let descIdx = -1, costIdx = -1, valIdx = -1, mauIdx = -1, unitIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
     const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
     const s = hdr.findIndex(h => skuCandidates.includes(h));
@@ -5887,6 +5912,7 @@ async function applyInstor(rows, fileName) {
       costIdx = hdr.findIndex(h => costCandidates.includes(h));
       valIdx  = hdr.findIndex(h => valCandidates.includes(h));
       mauIdx  = hdr.findIndex(h => mauCandidates.some(c => h.includes(c)));
+      unitIdx = hdr.findIndex(h => unitCandidates.includes(h));
       break;
     }
   }
@@ -5897,19 +5923,25 @@ async function applyInstor(rows, fileName) {
   const data = rows.slice(hdrIdx + 1).filter(r => r && String(r[skuIdx]||'').trim());
   if (!data.length) { alert('No data rows to import.'); return; }
 
-  // Aggregate multi-location rows per SKU: sum qty + weighted-avg cost + sum total value.
-  // Instor exports one row per SKU-location, so 72307 might appear 14 times.
+  // Aggregate per SKU AND per Unit. Instor is a Unit×Location×SKU dump, so 72307
+  // may appear 14 times: multiple rows in DANA1, one in AMZIN, etc.
+  //   qtyByUnit[SKU][UNIT] = summed Base Qty for that SKU in that BU
+  //   totalQty[SKU]        = grand total across all BUs
+  //   qty_on_hand at insert time = qtyByUnit[SKU]['MNDIN'] || 0
+  //     because Miguel plans only from MNDIN — other BUs are visibility, not calc.
   const bySku = new Map();
   for (const r of data) {
     const sku = String(r[skuIdx]).trim();
     if (!sku) continue;
+    const unit = unitIdx !== -1 ? String(r[unitIdx] || '').trim().toUpperCase() : 'UNKNOWN';
     const qty  = +r[ohIdx] || 0;
     const cost = costIdx !== -1 ? +r[costIdx] || 0 : 0;
     const val  = valIdx  !== -1 ? +r[valIdx]  || 0 : (qty * cost);
     const desc = descIdx !== -1 ? String(r[descIdx] || '').trim() : '';
     const mau  = mauIdx  !== -1 ? +r[mauIdx]  || 0 : 0;
-    const rec  = bySku.get(sku) || { sku, qty: 0, val: 0, weightedCost: 0, weightSum: 0, desc: '', mau: 0, locations: 0 };
-    rec.qty += qty;
+    const rec  = bySku.get(sku) || { sku, byUnit: {}, totalQty: 0, val: 0, weightedCost: 0, weightSum: 0, desc: '', mau: 0, locations: 0 };
+    rec.byUnit[unit] = (rec.byUnit[unit] || 0) + qty;
+    rec.totalQty += qty;
     rec.val += val;
     if (qty > 0 && cost > 0) { rec.weightedCost += cost * qty; rec.weightSum += qty; }
     if (!rec.desc && desc) rec.desc = desc;
@@ -5922,12 +5954,19 @@ async function applyInstor(rows, fileName) {
   const uniqueSKUs = aggregated.length;
   const prefix5 = aggregated.filter(r => r.sku.startsWith('5'));
 
+  // Breakdown by BU for the Trufig subset (helps sanity check MNDIN presence)
+  const buCounter = {};
+  prefix5.forEach(r => Object.keys(r.byUnit).forEach(u => { buCounter[u] = (buCounter[u] || 0) + 1; }));
+  const buLine = Object.keys(buCounter).sort().map(u => `${u}: ${buCounter[u]}`).join(', ') || '—';
+
   // Confirm dialog + choice: Trufig only vs Everything
   const msg = `Instor file "${fileName}"\n\n`
     + `• Total rows: ${totalRows.toLocaleString()}\n`
     + `• Unique SKUs (after aggregating locations): ${uniqueSKUs.toLocaleString()}\n`
-    + `• Trufig SKUs (prefix 5): ${prefix5.length.toLocaleString()}\n\n`
-    + `OK    → Upload ONLY the ${prefix5.length} Trufig SKUs (recommended for the Trufig Plan tab).\n`
+    + `• Trufig SKUs (prefix 5): ${prefix5.length.toLocaleString()}\n`
+    + `• Trufig SKUs seen per BU: ${buLine}\n\n`
+    + `The plan calc will use ONLY the MNDIN qty per SKU. Other BUs (AMZIN, DANA1, RTMIN, HKGIN) are stored for visibility (visible with a hint under On Hand) but do NOT feed the reorder formula.\n\n`
+    + `OK    → Upload the ${prefix5.length} Trufig SKUs.\n`
     + `Cancel → Abort.\n\n`
     + `The sp_mrp_trufig table will be wiped and replaced. sp_mrp_data (main MRP) is not touched.`;
   const proceed = confirm(msg);
@@ -5938,12 +5977,13 @@ async function applyInstor(rows, fileName) {
   const bodies = toUpload.map(r => ({
     item_id: r.sku,
     description: r.desc.slice(0, 200) || null,
-    qty_on_hand: r.qty,
+    qty_on_hand: +(r.byUnit['MNDIN'] || 0), // calc uses MNDIN only, per Miguel
     std_cost: r.weightSum > 0 ? +(r.weightedCost / r.weightSum).toFixed(4) : null,
     oh_value: r.val || null,
     mau: r.mau,
     proj_mau: r.mau,
     erp_pos: [0,0,0,0,0,0,0,0,0,0,0,0],
+    qty_by_unit: r.byUnit, // full breakdown for display / future WMS work
     uploaded_at: nowIso,
     uploaded_by: `sp-instor:${fileName}`,
   }));
