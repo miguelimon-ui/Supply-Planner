@@ -5869,9 +5869,9 @@ function trialLooksLikeInstor(rows) {
 
 async function applyInstor(rows, fileName) {
   const skuCandidates = ['item','inv_item_id','item_id','sku','part number','part_number'];
-  const ohCandidates  = ['qty owned','qty_owned','qty on hand','qty_on_hand','on hand','on_hand','qty available','qty_available','quantity'];
-  const descCandidates= ['description','descr','desc','name','item description'];
-  const costCandidates= ['item cost','item_cost','std cost','std_cost','unit cost','unit_cost'];
+  const ohCandidates  = ['base qty','base_qty','qty owned','qty_owned','qty on hand','qty_on_hand','on hand','on_hand','qty available','qty_available','quantity'];
+  const descCandidates= ['descr','description','desc','name','item description'];
+  const costCandidates= ['cost','item cost','item_cost','std cost','std_cost','unit cost','unit_cost'];
   const valCandidates = ['total value','total_value','extended value','extended_value','oh value','oh_value'];
   const mauCandidates = ['ttm','last 12 month sales monthly run rate','monthly run rate','mau','proj mau','avg monthly usage'];
 
@@ -5883,7 +5883,7 @@ async function applyInstor(rows, fileName) {
     const q = hdr.findIndex(h => ohCandidates.includes(h));
     if (s !== -1 && q !== -1) {
       hdrIdx = i; skuIdx = s; ohIdx = q;
-      descIdx = hdr.findIndex(h => descCandidates.some(c => h.includes(c) || c.includes(h)));
+      descIdx = hdr.findIndex(h => descCandidates.includes(h));
       costIdx = hdr.findIndex(h => costCandidates.includes(h));
       valIdx  = hdr.findIndex(h => valCandidates.includes(h));
       mauIdx  = hdr.findIndex(h => mauCandidates.some(c => h.includes(c)));
@@ -5891,24 +5891,58 @@ async function applyInstor(rows, fileName) {
     }
   }
   if (hdrIdx === -1) {
-    alert(`Could not find required columns.\n\nExpected SKU column (${skuCandidates.join(', ')}) and On Hand column (${ohCandidates.join(', ')}).\n\nFirst rows:\n${rows.slice(0,3).map(r => (r||[]).join(' | ')).join('\n')}`);
+    alert(`Could not find required columns.\n\nExpected SKU column (${skuCandidates.join(', ')}) and On Hand / Base Qty column (${ohCandidates.join(', ')}).\n\nFirst rows:\n${rows.slice(0,3).map(r => (r||[]).join(' | ')).join('\n')}`);
     return;
   }
   const data = rows.slice(hdrIdx + 1).filter(r => r && String(r[skuIdx]||'').trim());
   if (!data.length) { alert('No data rows to import.'); return; }
 
-  const proceed = confirm(`Upload ${data.length} Instor rows from "${fileName}"?\n\nThis WIPES the current Instor table (sp_mrp_trufig) and replaces it with these rows. The main MRP data (sp_mrp_data) is not touched.`);
+  // Aggregate multi-location rows per SKU: sum qty + weighted-avg cost + sum total value.
+  // Instor exports one row per SKU-location, so 72307 might appear 14 times.
+  const bySku = new Map();
+  for (const r of data) {
+    const sku = String(r[skuIdx]).trim();
+    if (!sku) continue;
+    const qty  = +r[ohIdx] || 0;
+    const cost = costIdx !== -1 ? +r[costIdx] || 0 : 0;
+    const val  = valIdx  !== -1 ? +r[valIdx]  || 0 : (qty * cost);
+    const desc = descIdx !== -1 ? String(r[descIdx] || '').trim() : '';
+    const mau  = mauIdx  !== -1 ? +r[mauIdx]  || 0 : 0;
+    const rec  = bySku.get(sku) || { sku, qty: 0, val: 0, weightedCost: 0, weightSum: 0, desc: '', mau: 0, locations: 0 };
+    rec.qty += qty;
+    rec.val += val;
+    if (qty > 0 && cost > 0) { rec.weightedCost += cost * qty; rec.weightSum += qty; }
+    if (!rec.desc && desc) rec.desc = desc;
+    if (mau > rec.mau) rec.mau = mau;
+    rec.locations += 1;
+    bySku.set(sku, rec);
+  }
+  const aggregated = [...bySku.values()];
+  const totalRows = data.length;
+  const uniqueSKUs = aggregated.length;
+  const prefix5 = aggregated.filter(r => r.sku.startsWith('5'));
+
+  // Confirm dialog + choice: Trufig only vs Everything
+  const msg = `Instor file "${fileName}"\n\n`
+    + `• Total rows: ${totalRows.toLocaleString()}\n`
+    + `• Unique SKUs (after aggregating locations): ${uniqueSKUs.toLocaleString()}\n`
+    + `• Trufig SKUs (prefix 5): ${prefix5.length.toLocaleString()}\n\n`
+    + `OK    → Upload ONLY the ${prefix5.length} Trufig SKUs (recommended for the Trufig Plan tab).\n`
+    + `Cancel → Abort.\n\n`
+    + `The sp_mrp_trufig table will be wiped and replaced. sp_mrp_data (main MRP) is not touched.`;
+  const proceed = confirm(msg);
   if (!proceed) return;
+  const toUpload = prefix5; // Trufig-only for this Trufig-scoped table
 
   const nowIso = new Date().toISOString();
-  const bodies = data.map(r => ({
-    item_id: String(r[skuIdx]).trim(),
-    description: descIdx !== -1 ? String(r[descIdx] || '').slice(0, 200) : null,
-    qty_on_hand: +r[ohIdx] || 0,
-    std_cost: costIdx !== -1 ? (+r[costIdx] || null) : null,
-    oh_value: valIdx !== -1 ? (+r[valIdx] || null) : null,
-    mau: mauIdx !== -1 ? (+r[mauIdx] || 0) : 0,
-    proj_mau: mauIdx !== -1 ? (+r[mauIdx] || 0) : 0,
+  const bodies = toUpload.map(r => ({
+    item_id: r.sku,
+    description: r.desc.slice(0, 200) || null,
+    qty_on_hand: r.qty,
+    std_cost: r.weightSum > 0 ? +(r.weightedCost / r.weightSum).toFixed(4) : null,
+    oh_value: r.val || null,
+    mau: r.mau,
+    proj_mau: r.mau,
     erp_pos: [0,0,0,0,0,0,0,0,0,0,0,0],
     uploaded_at: nowIso,
     uploaded_by: `sp-instor:${fileName}`,
@@ -5930,7 +5964,7 @@ async function applyInstor(rows, fileName) {
     // Reload and recalc
     await loadTrufigView(true);
     recalcTrufig();
-    alert(`✓ Uploaded ${done} Instor rows${failed ? ` · ${failed} failed` : ''}.`);
+    alert(`✓ Uploaded ${done} Trufig SKUs${failed ? ` · ${failed} failed` : ''}.\n\nAggregated from ${totalRows.toLocaleString()} location rows in the Instor file.`);
   } catch (e) {
     alert('Instor upload failed: ' + (e.message || e));
   }
