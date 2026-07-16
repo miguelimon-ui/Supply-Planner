@@ -3643,13 +3643,19 @@ async function rebuildPLPreview() {
       const childQty = (+l.quantity || 0) * qtyMultiplier;
 
       if (isPhantom && includeSub) {
-        // Phantom: don't add the phantom itself as a component, recurse into its lines
-        if (!entry.phantomsExploded.some(p => p.sku === c.sku)) {
-          entry.phantomsExploded.push({ sku: c.sku, name: c.description });
+        // Phantom: don't add the phantom itself as a component, recurse into its lines.
+        // Track how many components each phantom contributed so we can surface
+        // empty sub-BOMs (a common PL data-quality gap: header exists, no lines).
+        let phantomEntry = entry.phantomsExploded.find(p => p.sku === c.sku);
+        if (!phantomEntry) {
+          phantomEntry = { sku: c.sku, name: c.description, contributed: 0 };
+          entry.phantomsExploded.push(phantomEntry);
         }
         if (!phantomChain.has(c.id)) {
           const nextChain = new Set(phantomChain); nextChain.add(c.id);
+          const before = entry.components.length;
           await mergeInto(entry, childHeader.id, childQty, nextChain);
+          phantomEntry.contributed += (entry.components.length - before);
         }
       } else {
         addOrMergeComp(entry, {
@@ -3731,12 +3737,15 @@ function renderPLPreviewTree() {
       status = '<span style="color:var(--ok);font-size:10px">✓ CREATE</span>';
     }
     const arrow = p.level > 0 ? `<span style="color:var(--muted)">└─ (sub-BOM of ${esc(p.sourceParentSku||'?')})</span> ` : '';
+    const emptyPhantoms = (p.phantomsExploded || []).filter(ph => ph.contributed === 0);
+    const filledPhantoms = (p.phantomsExploded || []).filter(ph => ph.contributed > 0);
     const phantomsNote = (p.phantomsExploded && p.phantomsExploded.length)
-      ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--overst)">🕳 merged from phantoms: ${p.phantomsExploded.map(ph => esc(ph.sku)).join(', ')}</div>`
+      ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--overst)">🕳 expanded phantoms: ${p.phantomsExploded.map(ph => `${esc(ph.sku)}${ph.contributed === 0 ? ' <span style="color:var(--warn)">⚠ empty</span>' : ` <span style="color:var(--muted)">(+${ph.contributed})</span>`}`).join(', ')}</div>`
+      + (emptyPhantoms.length ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--warn);margin-top:2px">⚠ ${emptyPhantoms.length} phantom${emptyPhantoms.length===1?'':'s'} contributed 0 components — likely missing bom_lines in Product Library.</div>` : '')
       : '';
     const compsFromPhantoms = p.components.filter(c => c.fromPhantom).length;
-    const compsNote = compsFromPhantoms
-      ? ` (${p.components.length - compsFromPhantoms} direct + ${compsFromPhantoms} from phantom)`
+    const compsNote = compsFromPhantoms || emptyPhantoms.length
+      ? ` (${p.components.length - compsFromPhantoms} direct + ${compsFromPhantoms} from phantom${emptyPhantoms.length ? `, ${emptyPhantoms.length} phantom${emptyPhantoms.length===1?'':'s'} empty` : ''})`
       : '';
     // Individual phantom checkbox: only shown for sub-BOM entries
     // Disabled when master "phantom all subs" is on (implicit)
