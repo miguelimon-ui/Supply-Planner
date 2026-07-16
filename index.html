@@ -867,9 +867,10 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <input type="text" id="ss-search" placeholder="Search SKU or description…" oninput="renderSSView()" style="width:220px">
       <select id="ss-filter" onchange="renderSSView()">
         <option value="">All items</option>
-        <option value="manual">With manual SS</option>
+        <option value="manual">With manual SS (value > 0)</option>
         <option value="nossmanual">Without manual SS</option>
         <option value="belowss">Currently BELOW SS</option>
+        <option value="nomrp">In SS but not in current MRP</option>
       </select>
       <span class="result-count" id="ss-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px">
@@ -4045,75 +4046,117 @@ loadSafetyStock().catch(e => console.warn('Failed to load safety stock:', e));
 
 function renderSSView() {
   const body = document.getElementById('ss-body');
-  if (!rawItems.length) {
-    body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">Upload MRP data first (Supply Plan tab).</td></tr>';
-    document.getElementById('ss-count').textContent = '';
-    return;
-  }
   const search = (document.getElementById('ss-search').value || '').toLowerCase();
   const filter = document.getElementById('ss-filter').value;
 
-  // Build a working list annotated with SS info + BELOW flag using the current items[]
+  // Show BELOW status only for items that are in the current MRP (rawItems)
   const belowById = {};
   items.forEach(it => { if (it.status === 'BELOW') belowById[it.itemId] = true; });
+  const rawBySku = {};
+  rawItems.forEach(i => { rawBySku[String(i.itemId).trim().toUpperCase()] = i; });
 
-  const list = rawItems.filter(i => {
-    const rec = safetyStock[String(i.itemId).trim().toUpperCase()];
-    const hasManual = !!rec;
-    const below = !!belowById[i.itemId];
+  // Union: items from the current MRP + items that have a manual SS record but
+  // are NOT in the current MRP (previously invisible in this tab — matches
+  // Brett's expected count when a large SS list covers items not shipped this cycle).
+  const seen = new Set();
+  const union = [];
+  rawItems.forEach(i => {
+    const k = String(i.itemId).trim().toUpperCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    union.push({ itemId: i.itemId, desc: i.desc, suppName: i.suppName, mau: +i.mau || 0, onHand: i.onHand, inMRP: true });
+  });
+  Object.keys(safetyStock).forEach(k => {
+    if (seen.has(k)) return;
+    seen.add(k);
+    const rec = safetyStock[k];
+    // We stored the SKU in uppercase inside the key; use rec.item_id if we ever
+    // want the exact original casing (right now sp_safety_stock.item_id was
+    // upserted with the original casing already — but the map uses uppercase
+    // for lookup consistency, so we display the key).
+    union.push({ itemId: k, desc: rec.notes || '', suppName: '', mau: null, onHand: null, inMRP: false });
+  });
+
+  const list = union.filter(i => {
+    const key = String(i.itemId).trim().toUpperCase();
+    const rec = safetyStock[key];
+    const hasManual = !!rec && +rec.ss_units > 0;
+    const below = i.inMRP && !!belowById[i.itemId];
     if (filter === 'manual' && !hasManual) return false;
     if (filter === 'nossmanual' && hasManual) return false;
     if (filter === 'belowss' && !below) return false;
+    if (filter === 'nomrp' && i.inMRP) return false;
     if (search) {
-      const hay = `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase();
+      const hay = `${i.itemId} ${i.desc||''} ${i.suppName||''}`.toLowerCase();
       if (!hay.includes(search)) return false;
     }
     return true;
-  }).sort((a,b) => a.itemId.localeCompare(b.itemId));
+  }).sort((a,b) => String(a.itemId).localeCompare(String(b.itemId)));
 
   // Stats bar counters
-  const manualCount = Object.keys(safetyStock).length;
-  const importedCount = Object.values(safetyStock).filter(r => r.source === 'imported').length;
-  const formulaCount = rawItems.length - manualCount;
-  const belowCount = items.filter(it => it.status === 'BELOW').length;
-  const noMauCount = rawItems.filter(i => (+i.mau || 0) === 0).length;
+  const ssRecs = Object.values(safetyStock);
+  const manualCount   = ssRecs.filter(r => +r.ss_units > 0).length; // "with a real SS value"
+  const importedCount = ssRecs.filter(r => r.source === 'imported').length;
+  const formulaCount  = Math.max(0, rawItems.length - Object.keys(safetyStock).filter(k => rawBySku[k]).length);
+  const belowCount    = items.filter(it => it.status === 'BELOW').length;
+  const notInMrpCount = Object.keys(safetyStock).filter(k => !rawBySku[k]).length;
   document.getElementById('ss-cnt-manual').textContent   = manualCount.toLocaleString();
   document.getElementById('ss-cnt-imported').textContent = importedCount.toLocaleString();
   document.getElementById('ss-cnt-formula').textContent  = formulaCount.toLocaleString();
   document.getElementById('ss-cnt-below').textContent    = belowCount.toLocaleString();
-  document.getElementById('ss-cnt-nomau').textContent    = noMauCount.toLocaleString();
+  const nomauEl = document.getElementById('ss-cnt-nomau');
+  if (nomauEl) { nomauEl.textContent = notInMrpCount.toLocaleString(); nomauEl.title = 'SS defined but not in current MRP upload'; }
+  const nomauLabel = nomauEl && nomauEl.nextElementSibling;
+  if (nomauLabel) nomauLabel.textContent = 'Not in current MRP';
   document.getElementById('ss-count').textContent = `${list.length} items`;
 
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No items match the current filter.</td></tr>';
+    return;
+  }
+
   body.innerHTML = list.map(i => {
-    const rec = safetyStock[String(i.itemId).trim().toUpperCase()];
+    const key = String(i.itemId).trim().toUpperCase();
+    const rec = safetyStock[key];
     const manualVal = rec ? rec.ss_units : '';
     const source = rec ? rec.source : 'formula';
     const notes = rec ? rec.notes : '';
-    // Compute effective SS via items[] lookup (may have formula value if no manual)
-    const it = items.find(x => x.itemId === i.itemId);
-    const eff = it ? getEffectiveSSFromItem(it) : { value: null, source: 'formula' };
-    const effDisp = eff.value !== null ? fmt(eff.value) : '—';
-    const isBelow = !!belowById[i.itemId];
+    // Effective SS for items in current MRP comes from items[]; for not-in-MRP
+    // items it's just the manual value (no formula runs without MRP data).
+    const it = i.inMRP ? items.find(x => x.itemId === i.itemId) : null;
+    let effVal = null, effSource = source;
+    if (it) {
+      const eff = getEffectiveSSFromItem(it);
+      effVal = eff.value; effSource = eff.source;
+    } else if (rec) {
+      effVal = +rec.ss_units;
+    }
+    const effDisp = effVal !== null ? fmt(effVal) : '—';
+    const isBelow = i.inMRP && !!belowById[i.itemId];
     const sourceBadge = {
       manual:   '<span class="badge b-over">🛡️ MANUAL</span>',
       imported: '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">📥 IMPORTED</span>',
       formula:  '<span class="badge b-muted">FORMULA</span>',
     }[source] || '';
+    const noMrpBadge = i.inMRP ? '' : ' <span class="badge b-muted" title="This SKU has a Safety Stock record but is not in the current MRP upload. It will activate the next time PS includes it.">📭 NO MRP</span>';
     const family = componentFamilies[i.itemId] || '';
-    return `<tr style="border-bottom:1px solid var(--border);${isBelow ? 'background:rgba(248,113,113,.03)' : ''}">
+    const rowBg = i.inMRP
+      ? (isBelow ? 'background:rgba(248,113,113,.03)' : '')
+      : 'background:rgba(148,163,184,.04)';
+    return `<tr style="border-bottom:1px solid var(--border);${rowBg}${i.inMRP ? '' : ';opacity:.88'}">
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(i.itemId)}</td>
-      <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(i.desc)}</td>
+      <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(i.desc || '')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(i.suppName || '')}</td>
       <td style="padding:6px 10px;font-size:11px">${esc(family)}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${(+i.mau > 0) ? (+i.mau).toFixed(1) : '—'}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(i.onHand)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${(i.mau !== null && +i.mau > 0) ? (+i.mau).toFixed(1) : '—'}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.onHand !== null ? fmt(i.onHand) : '—'}</td>
       <td style="padding:6px 10px;text-align:right">
         <input type="number" value="${manualVal}" placeholder="—" min="0" step="1"
           onchange="setManualSS('${esc(i.itemId)}',this.value,this.parentElement.parentElement.querySelector('.ss-notes-input').value)"
           style="width:80px;text-align:right;font-family:var(--mono);font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
       </td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${eff.source==='manual' ? 'var(--overst)' : 'var(--text)'}">${effDisp}</td>
-      <td style="padding:6px 10px;text-align:center">${sourceBadge}${isBelow ? ' <span style="color:var(--danger);font-size:9px;margin-left:4px">BELOW</span>' : ''}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${effSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${effDisp}</td>
+      <td style="padding:6px 10px;text-align:center">${sourceBadge}${isBelow ? ' <span style="color:var(--danger);font-size:9px;margin-left:4px">BELOW</span>' : ''}${noMrpBadge}</td>
       <td style="padding:6px 10px">
         <input type="text" class="ss-notes-input" value="${esc(notes)}" placeholder="—"
           onchange="setManualSS('${esc(i.itemId)}',this.parentElement.parentElement.querySelector('input[type=number]').value,this.value)"
