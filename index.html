@@ -378,7 +378,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-health" onclick="switchTab('health')"><span class="tab-icon">🏥</span> Inv. Health</div>
     <div class="tab" id="tab-bom" onclick="switchTab('bom')"><span class="tab-icon">🧱</span> BOMs</div>
     <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
-    <div class="tab" id="tab-ss" onclick="switchTab('ss')"><span class="tab-icon">🛡️</span> Safety Stock</div>
+    <div class="tab" id="tab-ss" onclick="switchTab('ss')"><span class="tab-icon">🛡️</span> TRUFIG SS</div>
   </div>
 
   <!-- PLAN VIEW -->
@@ -860,7 +860,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
   <div id="ss-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
     <!-- toolbar -->
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <span style="font-weight:600;font-size:13px;color:var(--text)">🛡️ Safety Stock — SSOT</span>
+      <span style="font-weight:600;font-size:13px;color:var(--text)">🛡️ TRUFIG SS — Safety Stock SSOT</span>
       <input type="text" id="ss-search" placeholder="Search SKU or description…" oninput="renderSSView()" style="width:220px">
       <select id="ss-filter" onchange="renderSSView()">
         <option value="">All items</option>
