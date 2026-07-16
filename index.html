@@ -784,10 +784,13 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         </div>
         <!-- Step 3: preview tree -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px;display:flex;gap:12px;align-items:center">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <span>2️⃣ Preview (recursively includes sub-BOMs as separate BOMs)</span>
             <label style="font-weight:400;color:var(--muted);font-size:10px;display:flex;gap:4px;align-items:center;cursor:pointer">
               <input type="checkbox" id="pl-include-sub" checked onchange="rebuildPLPreview()"> Include sub-BOMs
+            </label>
+            <label style="font-weight:400;color:var(--overst);font-size:10px;display:flex;gap:4px;align-items:center;cursor:pointer" title="Treat every sub-assembly found as a phantom — its components merge into the parent BOM instead of creating separate BOM entries. Ideal for demo kits and Trufig where sub-assemblies are built during final assembly.">
+              <input type="checkbox" id="pl-phantom-all" onchange="togglePhantomAll(this.checked)"> 🕳 Phantom all sub-assemblies
             </label>
             <span id="pl-preview-summary" style="margin-left:auto;color:var(--muted);font-size:10px"></span>
           </div>
@@ -3481,11 +3484,28 @@ let plSearchResults = [];  // items matching search that have a bom_header
 let plSelected = new Map(); // itemId -> {sku, description, type, header_id}
 let plPreviewPlan = [];    // [{sku, name, type, level, componentCount, alreadyExists, headerId, sourceParentSku}]
 let plSearchTimer = null;
+// User can override the phantom flag directly from the preview (before Import).
+// Any header_id in this set is treated as phantom during preview + at Import time
+// (Import PATCHes bom_headers.is_phantom=true for each so it persists globally).
+let plUserPhantomOverrides = new Set();
+// Master toggle: when true, ALL non-root sub-BOM headers are treated as phantom
+// even if not individually checked. Individual checkboxes are shown checked+disabled.
+let plPhantomAllSubs = false;
+function isHeaderPhantomForPreview(header) {
+  if (!header || !header.id) return false;
+  if (header.is_phantom) return true;
+  if (plUserPhantomOverrides.has(header.id)) return true;
+  return false; // master toggle applied per-entry in walk() where we know the level
+}
 
 function openPLImportModal() {
   document.getElementById('pl-search').value = '';
   document.getElementById('pl-type-filter').value = '';
   document.getElementById('pl-include-sub').checked = true;
+  const allEl = document.getElementById('pl-phantom-all');
+  if (allEl) allEl.checked = false;
+  plPhantomAllSubs = false;
+  plUserPhantomOverrides = new Set();
   plSearchResults = []; plSelected.clear(); plPreviewPlan = [];
   document.getElementById('pl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:11px">Type in the search box to find BOMs.</div>';
   document.getElementById('pl-preview').innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Select one or more BOMs above to see the import preview.</div>';
@@ -3614,7 +3634,12 @@ async function rebuildPLPreview() {
       const c = l.items || {};
       const childHeader = (c.bom_headers || []).find(h => h.status === 'approved');
       const isSub = !!childHeader;
-      const isPhantom = isSub && !!childHeader.is_phantom;
+      // Phantom decision: DB flag OR individual user override OR master "phantom all subs" toggle
+      const isPhantom = isSub && (
+        !!childHeader.is_phantom
+        || plUserPhantomOverrides.has(childHeader.id)
+        || plPhantomAllSubs
+      );
       const childQty = (+l.quantity || 0) * qtyMultiplier;
 
       if (isPhantom && includeSub) {
@@ -3686,31 +3711,61 @@ function renderPLPreviewTree() {
   document.getElementById('pl-preview-summary').textContent = summary;
   document.getElementById('pl-import-btn').disabled = willImport === 0;
 
-  if (!nonPhantomPlan.length) {
+  if (!nonPhantomPlan.length && !phantomCount) {
     previewEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Nothing to import.</div>';
     return;
   }
-  previewEl.innerHTML = nonPhantomPlan.map(p => {
+
+  // Render ALL entries (including phantoms) so user can see and toggle them.
+  // Phantoms get a distinct look and don't count toward "to create".
+  previewEl.innerHTML = plPreviewPlan.map(p => {
     const indent = '&nbsp;'.repeat(p.level * 4);
-    const status = p.alreadyExists
-      ? '<span style="color:var(--warn);font-size:10px">⚠ SKIP (in SP)</span>'
-      : '<span style="color:var(--ok);font-size:10px">✓ CREATE</span>';
+    const canTogglePhantom = p.level > 0 && p.header_id; // sub-BOMs only, not top-level user-selected
+    const phantomActive = p.isPhantom;
+    let status;
+    if (phantomActive) {
+      status = '<span style="color:var(--overst);font-size:10px">🕳 EXPLODE (phantom)</span>';
+    } else if (p.alreadyExists) {
+      status = '<span style="color:var(--warn);font-size:10px">⚠ SKIP (in SP)</span>';
+    } else {
+      status = '<span style="color:var(--ok);font-size:10px">✓ CREATE</span>';
+    }
     const arrow = p.level > 0 ? `<span style="color:var(--muted)">└─ (sub-BOM of ${esc(p.sourceParentSku||'?')})</span> ` : '';
     const phantomsNote = (p.phantomsExploded && p.phantomsExploded.length)
-      ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--overst)">🕳 exploded phantoms: ${p.phantomsExploded.map(ph => esc(ph.sku)).join(', ')}</div>`
+      ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--overst)">🕳 merged from phantoms: ${p.phantomsExploded.map(ph => esc(ph.sku)).join(', ')}</div>`
       : '';
     const compsFromPhantoms = p.components.filter(c => c.fromPhantom).length;
     const compsNote = compsFromPhantoms
       ? ` (${p.components.length - compsFromPhantoms} direct + ${compsFromPhantoms} from phantom)`
       : '';
-    return `<div style="padding:3px 0;border-bottom:1px dashed rgba(148,163,184,.15)">
+    // Individual phantom checkbox: only shown for sub-BOM entries
+    // Disabled when master "phantom all subs" is on (implicit)
+    const chk = canTogglePhantom
+      ? `<label style="font-size:10px;color:var(--overst);cursor:pointer;user-select:none;margin-left:6px" title="Treat this sub-BOM as phantom: its components merge into the parent BOM instead of creating a separate BOM. On Import, this saves as bom_headers.is_phantom=true so future imports respect it.">
+          <input type="checkbox" ${phantomActive ? 'checked' : ''} ${plPhantomAllSubs ? 'disabled' : ''} onchange="togglePreviewPhantom('${esc(p.header_id)}',this.checked)"> 🕳 phantom
+        </label>`
+      : '';
+    const rowStyle = phantomActive ? 'opacity:.72;background:rgba(167,139,250,.05)' : '';
+    return `<div style="padding:4px 4px;border-bottom:1px dashed rgba(148,163,184,.15);${rowStyle}">
       ${indent}${arrow}<span style="color:var(--accent);font-weight:600">${esc(p.sku)}</span>
       <span style="color:var(--muted)">— ${esc(p.name||'')}</span>
       <span style="color:var(--muted);font-size:10px">· ${p.components.length} components${compsNote} · type ${esc(p.type||'—')}</span>
       ${status}
+      ${chk}
       ${phantomsNote}
     </div>`;
   }).join('');
+}
+
+function togglePreviewPhantom(headerId, checked) {
+  if (checked) plUserPhantomOverrides.add(headerId);
+  else plUserPhantomOverrides.delete(headerId);
+  rebuildPLPreview();
+}
+
+function togglePhantomAll(checked) {
+  plPhantomAllSubs = !!checked;
+  rebuildPLPreview();
 }
 
 async function applyPLImport() {
@@ -3721,6 +3776,28 @@ async function applyPLImport() {
   const btn = document.getElementById('pl-import-btn');
   btn.disabled = true;
   const statusEl = document.getElementById('pl-import-status');
+
+  // Persist phantom decisions to Product Library master data first, so future imports respect them.
+  // Union of individual overrides + (if master toggle is on) every sub-BOM header the walk touched.
+  const phantomHeaderIds = new Set(plUserPhantomOverrides);
+  if (plPhantomAllSubs) {
+    plPreviewPlan.forEach(p => { if (p.level > 0 && p.header_id) phantomHeaderIds.add(p.header_id); });
+  }
+  if (phantomHeaderIds.size) {
+    statusEl.textContent = `Marking ${phantomHeaderIds.size} sub-BOM${phantomHeaderIds.size===1?'':'s'} as phantom in Product Library…`;
+    let phSaved = 0, phFailed = 0;
+    for (const hid of phantomHeaderIds) {
+      try {
+        await sbFetch(`bom_headers?id=eq.${hid}`, {
+          method: 'PATCH', write: true, prefer: 'return=minimal',
+          body: { is_phantom: true }
+        });
+        phSaved++;
+      } catch (e) { phFailed++; console.warn('Failed to set phantom on', hid, e); }
+    }
+    if (phFailed) console.warn(`Phantom persist: ${phSaved} ok, ${phFailed} failed`);
+  }
+
   let done = 0, failed = 0;
   for (const p of toCreate) {
     try {
