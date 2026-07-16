@@ -378,6 +378,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-health" onclick="switchTab('health')"><span class="tab-icon">🏥</span> Inv. Health</div>
     <div class="tab" id="tab-bom" onclick="switchTab('bom')"><span class="tab-icon">🧱</span> BOMs</div>
     <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
+    <div class="tab" id="tab-ss" onclick="switchTab('ss')"><span class="tab-icon">🛡️</span> Safety Stock</div>
   </div>
 
   <!-- PLAN VIEW -->
@@ -852,6 +853,56 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <button class="btn btn-sm" onclick="closeBulkAddModal()">Cancel</button>
         <button class="btn btn-sm btn-accent" onclick="submitBulkAdd()">Add Selected</button>
       </div>
+    </div>
+  </div>
+
+  <!-- SAFETY STOCK VIEW -->
+  <div id="ss-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <!-- toolbar -->
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:13px;color:var(--text)">🛡️ Safety Stock — SSOT</span>
+      <input type="text" id="ss-search" placeholder="Search SKU or description…" oninput="renderSSView()" style="width:220px">
+      <select id="ss-filter" onchange="renderSSView()">
+        <option value="">All items</option>
+        <option value="manual">With manual SS</option>
+        <option value="nossmanual">Without manual SS</option>
+        <option value="belowss">Currently BELOW SS</option>
+      </select>
+      <span class="result-count" id="ss-count"></span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="document.getElementById('ss-bulk-input').click()" title="Upload Excel/CSV to bulk-set Safety Stock values">📥 Bulk Import SS</button>
+        <input type="file" id="ss-bulk-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleSSBulkFile(event)">
+        <button class="btn btn-sm" onclick="exportSSCSV()">⬇ Export CSV</button>
+      </div>
+    </div>
+    <!-- stats -->
+    <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div class="stat"><div class="stat-v" id="ss-cnt-manual" style="color:var(--accent2)">—</div><div class="stat-l">Manual SS</div></div>
+      <div class="stat"><div class="stat-v" id="ss-cnt-imported" style="color:var(--accent)">—</div><div class="stat-l">Imported</div></div>
+      <div class="stat"><div class="stat-v" id="ss-cnt-formula" style="color:var(--muted)">—</div><div class="stat-l">Formula (LT-based)</div></div>
+      <div class="stat"><div class="stat-v" id="ss-cnt-below" style="color:var(--danger)">—</div><div class="stat-l">Below SS today</div></div>
+      <div class="stat"><div class="stat-v" id="ss-cnt-nomau" style="color:var(--warn)">—</div><div class="stat-l">No MAU history yet</div></div>
+    </div>
+    <!-- table -->
+    <div style="flex:1;overflow:auto">
+      <table style="border-collapse:collapse;font-size:12px;width:100%">
+        <thead>
+          <tr>
+            <th class="is-th">Item ID</th>
+            <th class="is-th">Description</th>
+            <th class="is-th">Supplier</th>
+            <th class="is-th">Family</th>
+            <th class="is-th" style="text-align:right">MAU</th>
+            <th class="is-th" style="text-align:right">Current OH</th>
+            <th class="is-th" style="text-align:right;width:100px">Manual SS</th>
+            <th class="is-th" style="text-align:right;width:110px">Effective SS</th>
+            <th class="is-th" style="text-align:center;width:90px">Source</th>
+            <th class="is-th">Notes</th>
+            <th class="is-th" style="width:70px"></th>
+          </tr>
+        </thead>
+        <tbody id="ss-body"></tbody>
+      </table>
     </div>
   </div>
 
@@ -1401,8 +1452,14 @@ function recalcAll() {
     const pmu = sf.map((f, i) => i === 0 ? mau * f * monthFraction : mau * f);
 
     // SS and OS per month
-    const ss = pmu.map(p => Math.ceil(p * ssMult));
+    let ss = pmu.map(p => Math.ceil(p * ssMult));
     const os = pmu.map(p => Math.ceil(p * osMult));
+    // Manual SS override from sp_safety_stock (Safety Stock SSOT tab). When present,
+    // it replaces the LT-based formula for BELOW/OK/OVERSTOCK evaluation across all
+    // 12 months. Same value every month (it's a target level, not month-dependent).
+    const manualSS = getManualSS(raw.itemId);
+    const effectiveSSSource = manualSS !== null ? 'manual' : 'formula';
+    if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
 
     // Month-by-month simulation
     // Beginning Balance month 0 = On Hand + past-due POs (Month < 0)
@@ -1491,7 +1548,7 @@ function recalcAll() {
     }
 
     const lt = getLT(raw);
-    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, moqAdjusted, moq, demandFlag, ssMult, osMult, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none', isOnHold, isConsumeFirst, poReview };
+    return { ...raw, months, status: worstStatus, moh, mohwpo, suggested, moqAdjusted, moq, demandFlag, ssMult, osMult, ss, effectiveSSSource, lt, ltSource: lt !== null ? (ltItem[raw.itemId] !== undefined ? 'item' : 'supplier') : 'none', isOnHold, isConsumeFirst, poReview };
   });
 
   updateStats();
@@ -1786,6 +1843,7 @@ function renderTable() {
     return `<tr class="${rowClass} ${isClass}" data-id="${esc(item.itemId)}" onclick="openPanel('${esc(item.itemId)}')">
       <td style="min-width:90px">
         ${badgeMap[item.status] || ''}
+        ${item.effectiveSSSource === 'manual' ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.35);color:var(--overst);margin-left:2px" title="Safety Stock overridden manually via Safety Stock tab">🛡️ MANUAL</span>' : ''}
         ${item.isOnHold ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.35);color:var(--danger);margin-left:2px" title="PO suggestions blocked — item has >' + getHoldThreshold() + ' months OH">⛔ HOLD</span>' : ''}
         ${item.poReview ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.35);color:var(--warn);margin-left:2px" title="Review: ERP POs incoming but item already has high inventory">⚠ REVIEW</span>' : ''}
         ${item.isConsumeFirst ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(251,146,60,.15);border:1px solid rgba(251,146,60,.35);color:#fb923c;margin-left:2px" title="Consume First — no PO suggestions">🔸 CONSUME</span>' : ''}
@@ -2056,7 +2114,7 @@ function exportCSV() {
 // TAB SWITCHING
 // ─────────────────────────────────────────────
 function switchTab(tab) {
-  ['plan','po','lt','is','health','bom','eol'].forEach(t => {
+  ['plan','po','lt','is','health','bom','eol','ss'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
   });
   document.getElementById('plan-view').style.display   = tab === 'plan'   ? 'flex' : 'none';
@@ -2066,12 +2124,14 @@ function switchTab(tab) {
   document.getElementById('health-view').style.display = tab === 'health' ? 'flex' : 'none';
   document.getElementById('bom-view').style.display    = tab === 'bom'    ? 'flex' : 'none';
   document.getElementById('eol-view').style.display    = tab === 'eol'    ? 'flex' : 'none';
+  document.getElementById('ss-view').style.display     = tab === 'ss'     ? 'flex' : 'none';
   if (tab === 'po') renderPOView();
   if (tab === 'lt') renderLTView();
   if (tab === 'is') renderISView();
   if (tab === 'health') renderHealthView();
   if (tab === 'bom') renderBOMView();
   if (tab === 'eol') renderEOLView();
+  if (tab === 'ss') renderSSView();
 }
 
 // ─────────────────────────────────────────────
@@ -3513,46 +3573,95 @@ async function rebuildPLPreview() {
   const includeSub = document.getElementById('pl-include-sub').checked;
   const existing = new Set(bomList.map(b => String(b.parentSku).trim().toUpperCase()));
 
-  // For each selected item, walk BOM tree. Each node becomes its own BOM in the plan.
-  // Prevent infinite loops via visited set.
-  const visitedItemIds = new Set();
-  const plan = []; // [{sku, name, type, level, header_id, componentCount, alreadyExists, components:[{sku,name,type,qty,unit,isSubBOM,subHeaderId}]}]
+  // Plan structure with phantom explosion:
+  // - Each entry = one sp_boms row to create
+  // - Phantom sub-BOMs are exploded inline into the parent entry (qty × multiplier),
+  //   NOT pushed as separate entries. Their components are merged into parent.components.
+  // - Non-phantom sub-BOMs (when includeSub is on) DO create their own entries.
+  const visitedForSpawn = new Set(); // top-level items we've spawned a plan entry for
+  const plan = []; // [{itemId, sku, name, type, level, header_id, alreadyExists, components:[{sku,name,type,qty,unit,isSubBOM,subHeaderId,fromPhantom}], phantomsExploded:[{sku,name}], sourceParentSku}]
 
-  async function walk(itemId, level, sourceParentSku) {
-    if (visitedItemIds.has(itemId)) return;
-    visitedItemIds.add(itemId);
+  function addOrMergeComp(entry, comp) {
+    const key = String(comp.sku).trim().toUpperCase();
+    const existing = entry.components.find(c => String(c.sku).trim().toUpperCase() === key);
+    if (existing) {
+      existing.qty += comp.qty;
+      if (comp.fromPhantom) existing.fromPhantom = true;
+    } else {
+      entry.components.push({ ...comp });
+    }
+  }
 
-    // Get parent item + its bom_header
-    const itemRes = await sbFetch(`items?id=eq.${itemId}&select=sku,description,type,bom_headers!inner(id,status)&bom_headers.status=eq.approved`);
-    if (!itemRes || !itemRes.length) return;
-    const it = itemRes[0];
-    const header = (it.bom_headers && it.bom_headers[0]) || {};
-    if (!header.id) return;
+  async function fetchItemHeader(itemId) {
+    const rows = await sbFetch(`items?id=eq.${itemId}&select=sku,description,type,bom_headers!inner(id,status,is_phantom)&bom_headers.status=eq.approved`);
+    if (!rows || !rows.length) return null;
+    const it = rows[0];
+    const h = (it.bom_headers && it.bom_headers[0]) || {};
+    if (!h.id) return null;
+    return { item: it, header: h };
+  }
 
-    // Get children
-    const lines = await sbFetch(`bom_lines?bom_header_id=eq.${header.id}&select=quantity,unit,child_item_id,items:child_item_id(id,sku,description,type,bom_headers!left(id,status))&order=sort_order.asc.nullslast`) || [];
+  async function fetchLines(headerId) {
+    return (await sbFetch(`bom_lines?bom_header_id=eq.${headerId}&select=quantity,unit,child_item_id,items:child_item_id(id,sku,description,type,bom_headers!left(id,status,is_phantom))&order=sort_order.asc.nullslast`)) || [];
+  }
 
-    const components = lines.map(l => {
+  // Merge components of a header into a plan entry. Recurses through phantom sub-BOMs
+  // (their components merge in with multiplied qty). Non-phantom sub-BOMs are added as
+  // regular components (and later spawned as separate entries by walk()).
+  async function mergeInto(entry, headerId, qtyMultiplier, phantomChain) {
+    const lines = await fetchLines(headerId);
+    for (const l of lines) {
       const c = l.items || {};
       const childHeader = (c.bom_headers || []).find(h => h.status === 'approved');
-      return {
-        childItemId: c.id, sku: c.sku, name: c.description, type: c.type,
-        qty: +l.quantity || 0, unit: l.unit || 'EA',
-        isSubBOM: !!childHeader, subHeaderId: childHeader ? childHeader.id : null,
-      };
-    });
+      const isSub = !!childHeader;
+      const isPhantom = isSub && !!childHeader.is_phantom;
+      const childQty = (+l.quantity || 0) * qtyMultiplier;
 
-    plan.push({
-      itemId, sku: it.sku, name: it.description, type: it.type,
-      level, header_id: header.id, componentCount: components.length,
-      alreadyExists: existing.has(String(it.sku).trim().toUpperCase()),
-      components, sourceParentSku,
-    });
+      if (isPhantom && includeSub) {
+        // Phantom: don't add the phantom itself as a component, recurse into its lines
+        if (!entry.phantomsExploded.some(p => p.sku === c.sku)) {
+          entry.phantomsExploded.push({ sku: c.sku, name: c.description });
+        }
+        if (!phantomChain.has(c.id)) {
+          const nextChain = new Set(phantomChain); nextChain.add(c.id);
+          await mergeInto(entry, childHeader.id, childQty, nextChain);
+        }
+      } else {
+        addOrMergeComp(entry, {
+          childItemId: c.id, sku: c.sku, name: c.description, type: c.type,
+          qty: childQty, unit: l.unit || 'EA',
+          isSubBOM: isSub, subHeaderId: childHeader ? childHeader.id : null,
+          fromPhantom: phantomChain.size > 0,
+        });
+      }
+    }
+  }
 
+  async function walk(itemId, level, sourceParentSku) {
+    if (visitedForSpawn.has(itemId)) return;
+    visitedForSpawn.add(itemId);
+
+    const meta = await fetchItemHeader(itemId);
+    if (!meta) return;
+
+    const entry = {
+      itemId, sku: meta.item.sku, name: meta.item.description, type: meta.item.type,
+      level, header_id: meta.header.id, sourceParentSku,
+      components: [], phantomsExploded: [],
+      alreadyExists: existing.has(String(meta.item.sku).trim().toUpperCase()),
+      isPhantom: !!meta.header.is_phantom,
+    };
+    plan.push(entry);
+
+    // Populate components (exploding phantoms found while walking down)
+    await mergeInto(entry, meta.header.id, 1, new Set());
+
+    // Spawn separate plan entries for non-phantom sub-BOMs (regular components that
+    // themselves have BOMs — planned independently in Option C style)
     if (includeSub) {
-      for (const c of components) {
-        if (c.isSubBOM && !visitedItemIds.has(c.childItemId)) {
-          await walk(c.childItemId, level + 1, it.sku);
+      for (const c of entry.components) {
+        if (c.isSubBOM && !visitedForSpawn.has(c.childItemId)) {
+          await walk(c.childItemId, level + 1, entry.sku);
         }
       }
     }
@@ -3568,32 +3677,46 @@ async function rebuildPLPreview() {
 
 function renderPLPreviewTree() {
   const previewEl = document.getElementById('pl-preview');
-  const willImport = plPreviewPlan.filter(p => !p.alreadyExists).length;
-  const willSkip   = plPreviewPlan.filter(p =>  p.alreadyExists).length;
-  document.getElementById('pl-preview-summary').textContent = `${willImport} BOM${willImport===1?'':'s'} to create · ${willSkip} skipped (already in SP)`;
+  // Filter out phantom entries — those never create a BOM
+  const nonPhantomPlan = plPreviewPlan.filter(p => !p.isPhantom);
+  const willImport = nonPhantomPlan.filter(p => !p.alreadyExists).length;
+  const willSkip   = nonPhantomPlan.filter(p =>  p.alreadyExists).length;
+  const phantomCount = plPreviewPlan.filter(p => p.isPhantom).length;
+  const summary = `${willImport} BOM${willImport===1?'':'s'} to create · ${willSkip} skipped (already in SP)${phantomCount ? ` · ${phantomCount} phantom${phantomCount===1?'':'s'} exploded inline` : ''}`;
+  document.getElementById('pl-preview-summary').textContent = summary;
   document.getElementById('pl-import-btn').disabled = willImport === 0;
 
-  if (!plPreviewPlan.length) {
+  if (!nonPhantomPlan.length) {
     previewEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:14px">Nothing to import.</div>';
     return;
   }
-  previewEl.innerHTML = plPreviewPlan.map(p => {
+  previewEl.innerHTML = nonPhantomPlan.map(p => {
     const indent = '&nbsp;'.repeat(p.level * 4);
     const status = p.alreadyExists
       ? '<span style="color:var(--warn);font-size:10px">⚠ SKIP (in SP)</span>'
       : '<span style="color:var(--ok);font-size:10px">✓ CREATE</span>';
     const arrow = p.level > 0 ? `<span style="color:var(--muted)">└─ (sub-BOM of ${esc(p.sourceParentSku||'?')})</span> ` : '';
+    const phantomsNote = (p.phantomsExploded && p.phantomsExploded.length)
+      ? `<div style="padding-left:${(p.level * 4) + 4}ch;font-size:10px;color:var(--overst)">🕳 exploded phantoms: ${p.phantomsExploded.map(ph => esc(ph.sku)).join(', ')}</div>`
+      : '';
+    const compsFromPhantoms = p.components.filter(c => c.fromPhantom).length;
+    const compsNote = compsFromPhantoms
+      ? ` (${p.components.length - compsFromPhantoms} direct + ${compsFromPhantoms} from phantom)`
+      : '';
     return `<div style="padding:3px 0;border-bottom:1px dashed rgba(148,163,184,.15)">
       ${indent}${arrow}<span style="color:var(--accent);font-weight:600">${esc(p.sku)}</span>
       <span style="color:var(--muted)">— ${esc(p.name||'')}</span>
-      <span style="color:var(--muted);font-size:10px">· ${p.componentCount} components · type ${esc(p.type||'—')}</span>
+      <span style="color:var(--muted);font-size:10px">· ${p.components.length} components${compsNote} · type ${esc(p.type||'—')}</span>
       ${status}
+      ${phantomsNote}
     </div>`;
   }).join('');
 }
 
 async function applyPLImport() {
-  const toCreate = plPreviewPlan.filter(p => !p.alreadyExists);
+  // Skip phantoms — they never become their own sp_boms row (their components
+  // were already merged into their non-phantom ancestor).
+  const toCreate = plPreviewPlan.filter(p => !p.alreadyExists && !p.isPhantom);
   if (!toCreate.length) { closePLImportModal(); return; }
   const btn = document.getElementById('pl-import-btn');
   btn.disabled = true;
@@ -3651,8 +3774,9 @@ async function openWhereUsedModal(componentSku, bomIdContext) {
     const item = items[0];
     document.getElementById('wu-desc').textContent = item.description || '';
 
-    // 2. Find all bom_lines that reference this child_item_id (where-used)
-    const lines = await sbFetch(`bom_lines?child_item_id=eq.${item.id}&select=quantity,unit,bom_headers!inner(id,status,parent_item_id,items:parent_item_id(sku,description,type,status))&bom_headers.status=eq.approved&limit=500`);
+    // 2. Find all bom_lines that reference this child_item_id (where-used).
+    //    Include is_phantom so each parent row can show/toggle the phantom flag.
+    const lines = await sbFetch(`bom_lines?child_item_id=eq.${item.id}&select=quantity,unit,bom_headers!inner(id,status,is_phantom,parent_item_id,items:parent_item_id(sku,description,type,status))&bom_headers.status=eq.approved&limit=500`);
     renderWhereUsed(item, lines || []);
   } catch (e) {
     document.getElementById('wu-body').innerHTML = `<div style="text-align:center;color:var(--danger);padding:40px 0;font-size:12px">Load failed: ${esc(e.message||e)}</div>`;
@@ -3682,6 +3806,7 @@ function renderWhereUsed(item, lines) {
       qty: +l.quantity, unit: l.unit,
       inSP: spExisting.has(String(parent.sku||'').trim().toUpperCase()),
       spIS: is, mau: mrp ? mrp.mau : null, onHand: mrp ? mrp.onHand : null,
+      bomHeaderId: h.id, isPhantom: !!h.is_phantom,
     };
   });
   // De-dupe by sku (shouldn't have multiples per approved header but be safe)
@@ -3727,12 +3852,16 @@ function renderWhereUsed(item, lines) {
     <th style="text-align:right">Parent MAU</th>
     <th style="text-align:right">Parent OH</th>
     <th style="text-align:center">In SP?</th>
+    <th style="text-align:center" title="Mark this parent's sub-BOM as a phantom (built during final assembly, not stocked separately). Future imports will explode its components into the grandparent instead of creating a separate BOM.">🕳 Phantom?</th>
   </tr></thead><tbody>`;
 
   html += unique.map(p => {
     const statusColor = p.itemStatus === 'active' ? 'var(--ok)' : p.itemStatus === 'eol' ? '#e879f9' : p.itemStatus === 'discontinued' ? 'var(--danger)' : 'var(--muted)';
     const spBadge = p.inSP
       ? `<span style="color:var(--ok);font-size:10px">✓ ${p.spIS ? esc(p.spIS) : 'in SP'}</span>`
+      : '<span style="color:var(--muted);font-size:10px">—</span>';
+    const phantomCk = p.bomHeaderId
+      ? `<input type="checkbox" ${p.isPhantom ? 'checked' : ''} onchange="togglePhantomBOM('${esc(p.bomHeaderId)}','${esc(p.sku)}',this.checked)" title="Toggle phantom flag for ${esc(p.sku)}'s BOM">`
       : '<span style="color:var(--muted);font-size:10px">—</span>';
     return `<tr>
       <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(p.sku)}</td>
@@ -3743,6 +3872,7 @@ function renderWhereUsed(item, lines) {
       <td style="text-align:right;font-family:var(--mono);font-size:11px">${p.mau !== null && p.mau > 0 ? p.mau.toFixed(1) : '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px">${p.onHand !== null ? fmt(p.onHand) : '—'}</td>
       <td style="text-align:center">${spBadge}</td>
+      <td style="text-align:center">${phantomCk}</td>
     </tr>`;
   }).join('');
   html += '</tbody></table>';
@@ -3770,8 +3900,304 @@ async function markCurrentAsShared(componentSku) {
   }
 }
 
+// Toggle bom_headers.is_phantom for a parent shown in the Where-Used table.
+// Used across the Product Library, so this write affects any future PL import.
+async function togglePhantomBOM(bomHeaderId, sku, checked) {
+  const statusEl = document.getElementById('wu-status');
+  statusEl.textContent = `Saving ${sku}…`;
+  try {
+    await sbFetch(`bom_headers?id=eq.${bomHeaderId}`, {
+      method: 'PATCH', write: true, prefer: 'return=minimal',
+      body: { is_phantom: !!checked }
+    });
+    statusEl.textContent = `✓ ${sku} marked as ${checked ? 'PHANTOM' : 'non-phantom'}. Future PL imports will ${checked ? 'explode' : 'keep'} it.`;
+  } catch (e) {
+    statusEl.textContent = `⚠ Failed to update phantom flag: ${e.message || e}`;
+  }
+}
+
 // Load BOMs on startup
 loadBOMsFromSupabase().catch(e => console.warn('Failed to load BOMs:', e));
+
+// ─────────────────────────────────────────────
+// SAFETY STOCK SSOT
+// ─────────────────────────────────────────────
+let safetyStock = {}; // item_id -> {ss_units, source, notes, updated_by, updated_at}
+
+async function loadSafetyStock() {
+  const rows = await sbFetch('sp_safety_stock?select=*&limit=10000');
+  safetyStock = {};
+  (rows || []).forEach(r => {
+    safetyStock[String(r.item_id).trim().toUpperCase()] = {
+      ss_units: +r.ss_units || 0,
+      source: r.source || 'manual',
+      notes: r.notes || '',
+      updated_by: r.updated_by || '',
+      updated_at: r.updated_at || null,
+    };
+  });
+}
+
+function getManualSS(itemId) {
+  const rec = safetyStock[String(itemId).trim().toUpperCase()];
+  return rec ? rec.ss_units : null;
+}
+
+// Effective SS = manual SS if present, else the formula value from items[].
+// Used by the Supply Plan BELOW/OK/OVERSTOCK calc AFTER items[] has been computed.
+function getEffectiveSSFromItem(item) {
+  const manual = getManualSS(item.itemId);
+  if (manual !== null) return { value: manual, source: 'manual' };
+  // Fallback: pick the maximum of the LT-based ss[] array (used across projected months).
+  // Same approach as the existing formula, no numerical change unless manual overrides.
+  const ssArr = Array.isArray(item.ss) ? item.ss : [];
+  const max = ssArr.length ? Math.max(...ssArr) : 0;
+  return { value: max, source: 'formula' };
+}
+
+loadSafetyStock().catch(e => console.warn('Failed to load safety stock:', e));
+
+function renderSSView() {
+  const body = document.getElementById('ss-body');
+  if (!rawItems.length) {
+    body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">Upload MRP data first (Supply Plan tab).</td></tr>';
+    document.getElementById('ss-count').textContent = '';
+    return;
+  }
+  const search = (document.getElementById('ss-search').value || '').toLowerCase();
+  const filter = document.getElementById('ss-filter').value;
+
+  // Build a working list annotated with SS info + BELOW flag using the current items[]
+  const belowById = {};
+  items.forEach(it => { if (it.status === 'BELOW') belowById[it.itemId] = true; });
+
+  const list = rawItems.filter(i => {
+    const rec = safetyStock[String(i.itemId).trim().toUpperCase()];
+    const hasManual = !!rec;
+    const below = !!belowById[i.itemId];
+    if (filter === 'manual' && !hasManual) return false;
+    if (filter === 'nossmanual' && hasManual) return false;
+    if (filter === 'belowss' && !below) return false;
+    if (search) {
+      const hay = `${i.itemId} ${i.desc} ${i.suppName}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  }).sort((a,b) => a.itemId.localeCompare(b.itemId));
+
+  // Stats bar counters
+  const manualCount = Object.keys(safetyStock).length;
+  const importedCount = Object.values(safetyStock).filter(r => r.source === 'imported').length;
+  const formulaCount = rawItems.length - manualCount;
+  const belowCount = items.filter(it => it.status === 'BELOW').length;
+  const noMauCount = rawItems.filter(i => (+i.mau || 0) === 0).length;
+  document.getElementById('ss-cnt-manual').textContent   = manualCount.toLocaleString();
+  document.getElementById('ss-cnt-imported').textContent = importedCount.toLocaleString();
+  document.getElementById('ss-cnt-formula').textContent  = formulaCount.toLocaleString();
+  document.getElementById('ss-cnt-below').textContent    = belowCount.toLocaleString();
+  document.getElementById('ss-cnt-nomau').textContent    = noMauCount.toLocaleString();
+  document.getElementById('ss-count').textContent = `${list.length} items`;
+
+  body.innerHTML = list.map(i => {
+    const rec = safetyStock[String(i.itemId).trim().toUpperCase()];
+    const manualVal = rec ? rec.ss_units : '';
+    const source = rec ? rec.source : 'formula';
+    const notes = rec ? rec.notes : '';
+    // Compute effective SS via items[] lookup (may have formula value if no manual)
+    const it = items.find(x => x.itemId === i.itemId);
+    const eff = it ? getEffectiveSSFromItem(it) : { value: null, source: 'formula' };
+    const effDisp = eff.value !== null ? fmt(eff.value) : '—';
+    const isBelow = !!belowById[i.itemId];
+    const sourceBadge = {
+      manual:   '<span class="badge b-over">🛡️ MANUAL</span>',
+      imported: '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">📥 IMPORTED</span>',
+      formula:  '<span class="badge b-muted">FORMULA</span>',
+    }[source] || '';
+    const family = componentFamilies[i.itemId] || '';
+    return `<tr style="border-bottom:1px solid var(--border);${isBelow ? 'background:rgba(248,113,113,.03)' : ''}">
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(i.itemId)}</td>
+      <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(i.desc)}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(i.suppName || '')}</td>
+      <td style="padding:6px 10px;font-size:11px">${esc(family)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${(+i.mau > 0) ? (+i.mau).toFixed(1) : '—'}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(i.onHand)}</td>
+      <td style="padding:6px 10px;text-align:right">
+        <input type="number" value="${manualVal}" placeholder="—" min="0" step="1"
+          onchange="setManualSS('${esc(i.itemId)}',this.value,this.parentElement.parentElement.querySelector('.ss-notes-input').value)"
+          style="width:80px;text-align:right;font-family:var(--mono);font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
+      </td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${eff.source==='manual' ? 'var(--overst)' : 'var(--text)'}">${effDisp}</td>
+      <td style="padding:6px 10px;text-align:center">${sourceBadge}${isBelow ? ' <span style="color:var(--danger);font-size:9px;margin-left:4px">BELOW</span>' : ''}</td>
+      <td style="padding:6px 10px">
+        <input type="text" class="ss-notes-input" value="${esc(notes)}" placeholder="—"
+          onchange="setManualSS('${esc(i.itemId)}',this.parentElement.parentElement.querySelector('input[type=number]').value,this.value)"
+          style="width:100%;font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
+      </td>
+      <td style="padding:6px 10px;text-align:center">
+        ${rec ? `<span onclick="deleteManualSS('${esc(i.itemId)}')" style="cursor:pointer;color:var(--danger);font-size:12px" title="Remove manual SS (falls back to formula)">✕</span>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function setManualSS(itemId, valueStr, notes) {
+  const val = String(valueStr).trim();
+  const key = String(itemId).trim().toUpperCase();
+  if (val === '' || val === null) {
+    // Empty → delete
+    if (safetyStock[key]) await deleteManualSS(itemId);
+    return;
+  }
+  const num = +val;
+  if (!isFinite(num) || num < 0) { alert('Safety Stock must be a non-negative number.'); return; }
+  const body = {
+    item_id: itemId, ss_units: num, source: 'manual',
+    notes: notes || null, updated_by: 'sp-ui',
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    await sbFetch('sp_safety_stock', {
+      method: 'POST', write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: [body],
+    });
+    safetyStock[key] = { ss_units: num, source: 'manual', notes: notes || '', updated_by: 'sp-ui', updated_at: body.updated_at };
+    // Refresh items[] so Supply Plan reflects new SS immediately
+    recalcAll();
+    renderSSView();
+  } catch (e) {
+    alert('Failed to save SS: ' + (e.message || e));
+  }
+}
+
+async function deleteManualSS(itemId) {
+  const key = String(itemId).trim().toUpperCase();
+  try {
+    await sbFetch(`sp_safety_stock?item_id=eq.${encodeURIComponent(itemId)}`, {
+      method: 'DELETE', write: true, prefer: 'return=minimal',
+    });
+    delete safetyStock[key];
+    recalcAll();
+    renderSSView();
+  } catch (e) {
+    alert('Failed to delete manual SS: ' + (e.message || e));
+  }
+}
+
+function exportSSCSV() {
+  const rows = [['Item ID','Description','Supplier','Family','MAU','Current OH','Manual SS','Source','Notes','Updated At']];
+  rawItems.forEach(i => {
+    const rec = safetyStock[String(i.itemId).trim().toUpperCase()];
+    rows.push([
+      i.itemId, i.desc, i.suppName, componentFamilies[i.itemId] || '',
+      +i.mau || 0, i.onHand,
+      rec ? rec.ss_units : '', rec ? rec.source : 'formula',
+      rec ? (rec.notes || '') : '', rec ? (rec.updated_at || '') : '',
+    ]);
+  });
+  const csv = rows.map(r => r.map(v => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `safety_stock_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// SS Bulk Import — same flexible-header parser as FG bulk update
+function handleSSBulkFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  const name = file.name.toLowerCase();
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let rows;
+    try {
+      if (name.endsWith('.csv')) rows = parseCSV(e.target.result);
+      else {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        // Try each sheet and pick the one where our SKU + SS columns can be found
+        for (const sheetName of wb.SheetNames) {
+          const trial = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+          if (trialLooksLikeSSSheet(trial)) { rows = trial; break; }
+        }
+        if (!rows) rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      }
+    } catch (err) { alert('Failed to parse file: ' + err.message); return; }
+    applySSBulk(rows, file.name);
+  };
+  if (name.endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+function trialLooksLikeSSSheet(rows) {
+  if (!rows || rows.length < 2) return false;
+  const skuCandidates = ['part number','part_number','item','inv_item_id','item_id','sku'];
+  const ssCandidates  = ['safety stock','safety_stock','safety','ss','ss units','ss_units','min stock'];
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
+    const s = hdr.findIndex(h => skuCandidates.includes(h));
+    const q = hdr.findIndex(h => ssCandidates.includes(h));
+    if (s !== -1 && q !== -1) return true;
+  }
+  return false;
+}
+
+async function applySSBulk(rows, fileName) {
+  const skuCandidates = ['part number','part_number','item','inv_item_id','item_id','sku'];
+  const ssCandidates  = ['safety stock','safety_stock','safety','ss','ss units','ss_units','min stock'];
+  const descCandidates = ['descr','description','desc','name','price list index confidential'];
+  let headerIdx = -1, skuIdx = -1, ssIdx = -1, descIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
+    const s = hdr.findIndex(h => skuCandidates.includes(h));
+    const q = hdr.findIndex(h => ssCandidates.includes(h));
+    if (s !== -1 && q !== -1) {
+      headerIdx = i; skuIdx = s; ssIdx = q;
+      descIdx = hdr.findIndex(h => descCandidates.some(c => h.includes(c) || c.includes(h)));
+      break;
+    }
+  }
+  if (headerIdx === -1) {
+    alert(`Could not find required columns.\n\nExpected an SKU column (${skuCandidates.join(', ')}) and Safety Stock column (${ssCandidates.join(', ')}).\n\nHeader row candidates:\n${rows.slice(0,3).map(r => (r||[]).join(' | ')).join('\n')}`);
+    return;
+  }
+  const data = rows.slice(headerIdx + 1).filter(r => r && String(r[skuIdx]||'').trim() && r[ssIdx] !== '' && r[ssIdx] !== null);
+  if (!data.length) { alert('No data rows to import.'); return; }
+  const bodies = data.map(r => ({
+    item_id: String(r[skuIdx]).trim(),
+    ss_units: +r[ssIdx] || 0,
+    source: 'imported',
+    notes: descIdx !== -1 ? String(r[descIdx] || '').slice(0, 200) : null,
+    updated_by: `sp-import:${fileName}`,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const proceed = confirm(`Import ${bodies.length} Safety Stock rows from "${fileName}"?\n\nExisting manual/imported values for these SKUs will be overwritten.`);
+  if (!proceed) return;
+
+  // Upsert in chunks
+  const CHUNK = 500;
+  let done = 0, failed = 0;
+  for (let i = 0; i < bodies.length; i += CHUNK) {
+    const chunk = bodies.slice(i, i + CHUNK);
+    try {
+      await sbFetch('sp_safety_stock', {
+        method: 'POST', write: true,
+        headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+        body: chunk,
+      });
+      done += chunk.length;
+    } catch (e) { failed += chunk.length; console.warn('SS bulk chunk failed:', e); }
+  }
+  await loadSafetyStock();
+  recalcAll();
+  renderSSView();
+  alert(`✓ Imported ${done} rows${failed ? ` · ${failed} failed` : ''}.`);
+}
 
 // ─────────────────────────────────────────────
 // EOL TAB
