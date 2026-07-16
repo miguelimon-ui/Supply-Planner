@@ -931,6 +931,12 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="OK">🟢 OK</option>
         <option value="OVERSTOCK">🟣 Overstock</option>
       </select>
+      <select id="tf-horizon" onchange="renderTrufigTable()" title="Horizon for the Suggested column — the sum of PID/PO across N future months.">
+        <option value="3">Suggested: next 3m</option>
+        <option value="6">Suggested: next 6m</option>
+        <option value="9">Suggested: next 9m</option>
+        <option value="12" selected>Suggested: next 12m</option>
+      </select>
       <span class="result-count" id="tf-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
         <span id="tf-instor-info" style="font-size:11px;color:var(--muted);padding:4px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;display:flex;gap:6px;align-items:center;white-space:nowrap"></span>
@@ -5809,17 +5815,28 @@ function recalcTrufig() {
   renderTrufigTable();
 }
 
+function getTrufigHorizon() {
+  const el = document.getElementById('tf-horizon');
+  const v = el ? parseInt(el.value, 10) : 12;
+  return isFinite(v) && v > 0 && v <= 12 ? v : 12;
+}
+
 // Dynamic thead for the Trufig Plan table: fixed columns + 12 forward months.
-// Rebuilt on each render to reflect the current date.
+// Rebuilt on each render to reflect current date and the selected horizon.
 function renderTrufigThead() {
   const el = document.getElementById('tf-thead');
   if (!el) return;
+  const horizon = getTrufigHorizon();
   const now = new Date();
   const monthHdrs = [];
   for (let i = 0; i < 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const label = d.toLocaleString('en-US', { month: 'short' }) + ' ' + String(d.getFullYear()).slice(2);
-    monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${i===0?'rgba(0,163,225,.08)':'inherit'}">${label}</th>`);
+    const inHorizon = i < horizon;
+    const bg = i === 0 ? 'rgba(0,163,225,.08)'
+             : !inHorizon ? 'rgba(148,163,184,.04)' : 'inherit';
+    const opa = inHorizon ? '' : 'opacity:.55;';
+    monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${bg};${opa}">${label}</th>`);
   }
   el.innerHTML = `<tr>
     <th class="is-th">Status</th>
@@ -5832,7 +5849,7 @@ function renderTrufigThead() {
     <th class="is-th" style="text-align:right" title="Monthly Average Usage. When manual SS exists → MAU = SS / months_cover (default 3), shown with 📐. Otherwise from MRP.">MAU</th>
     <th class="is-th" style="text-align:right">Effective SS</th>
     <th class="is-th" style="text-align:center" title="MAKE or BUY — editable in TRUFIG SS tab.">Type</th>
-    <th class="is-th" style="text-align:right" title="SUM of suggested PID/PO across the 12-month cascade.">Suggested (12m)</th>
+    <th class="is-th" style="text-align:right" title="SUM of suggested PID/PO across the selected horizon (change with the dropdown in the toolbar).">Suggested (${horizon}m)</th>
     ${monthHdrs.join('')}
     <th class="is-th" style="text-align:center">Data Source</th>
   </tr>`;
@@ -5920,6 +5937,7 @@ function renderTrufigTable() {
   document.getElementById('tf-val').textContent          = '$' + (totalVal/1000).toFixed(0) + 'k';
   document.getElementById('tf-count').textContent = `${list.length} of ${total}`;
 
+  const horizon = getTrufigHorizon();
   document.getElementById('tf-body').innerHTML = list.map(it => {
     const statusBadge = {
       BELOW:      '<span class="badge b-danger">BELOW SS</span>',
@@ -5937,8 +5955,9 @@ function renderTrufigTable() {
                      : it.itemGroup === 'SUBASSEMBLY'   ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)" title="Sub-assembly">🧩 SUB</span>'
                      : '<span class="badge b-muted" title="No Item Group in Instor">—</span>';
     const suggestedPrefix = it.kind === 'make' ? 'PID' : 'PO';
-    const suggestedCell = it.suggestedTotal > 0
-      ? `<span style="color:${it.kind==='make'?'var(--accent)':'var(--danger)'};font-weight:700">${suggestedPrefix}: ${fmt(it.suggestedTotal)}</span>`
+    const horizonSum = (it.suggested || []).slice(0, horizon).reduce((s, n) => s + (+n || 0), 0);
+    const suggestedCell = horizonSum > 0
+      ? `<span style="color:${it.kind==='make'?'var(--accent)':'var(--danger)'};font-weight:700" title="Sum of suggested PID/PO across the next ${horizon} month${horizon===1?'':'s'}">${suggestedPrefix}: ${fmt(horizonSum)}</span>`
       : '<span style="color:var(--muted)">—</span>';
     const sourceBadge = {
       instor:  '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">INSTOR</span>',
@@ -5949,7 +5968,8 @@ function renderTrufigTable() {
                 : it.status === 'BELOW'   ? 'background:rgba(248,113,113,.04)'
                 : it.status === 'OVERSTOCK' ? 'background:rgba(167,139,250,.03)' : '';
 
-    // 12-month cascade cells
+    // 12-month cascade cells (months beyond the selected horizon dimmed so
+    // it's clear which contribute to the Suggested total)
     const monthCells = (it.months || []).map((m, mi) => {
       const stColor = m.status === 'BELOW' ? 'var(--danger)' : m.status === 'OVERSTOCK' ? 'var(--overst)' : m.status === 'OK' ? 'var(--ok)' : 'var(--muted)';
       const stMark  = m.status === 'BELOW' ? '▼' : m.status === 'OVERSTOCK' ? '▲' : m.status === 'OK' ? '●' : '·';
@@ -5957,7 +5977,10 @@ function renderTrufigTable() {
         ? `<div style="font-size:10px;font-weight:700;color:${it.kind==='make'?'var(--accent)':'var(--danger)'}">${suggestedPrefix}:${fmt(m.suggested)}</div>`
         : '';
       const erpTxt = m.erpPO > 0 ? `<div style="font-size:9px;color:var(--accent2)">ERP:${fmt(m.erpPO)}</div>` : '';
-      return `<td style="padding:4px 6px;text-align:right;font-family:var(--mono);vertical-align:top;border-left:1px solid var(--rule-soft);${mi===0?'background:rgba(0,163,225,.03)':''}">
+      const inHorizon = mi < horizon;
+      const cellBg = mi === 0 ? 'background:rgba(0,163,225,.03);' : !inHorizon ? 'background:rgba(148,163,184,.03);' : '';
+      const cellOpa = inHorizon ? '' : 'opacity:.5;';
+      return `<td style="padding:4px 6px;text-align:right;font-family:var(--mono);vertical-align:top;border-left:1px solid var(--rule-soft);${cellBg}${cellOpa}">
         <div style="font-size:9px;color:${stColor};font-weight:600">${stMark} ${m.status === 'no-usage' ? '' : m.status}</div>
         <div style="font-size:11px">${fmt(m.bb)}</div>
         ${sugTxt}
