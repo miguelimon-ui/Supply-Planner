@@ -933,7 +933,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       </select>
       <span class="result-count" id="tf-count"></span>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <span id="tf-instor-info" style="font-size:10px;color:var(--muted)"></span>
+        <span id="tf-instor-info" style="font-size:11px;color:var(--muted);padding:4px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;display:flex;gap:6px;align-items:center;white-space:nowrap"></span>
         <button class="btn btn-sm" onclick="document.getElementById('tf-instor-input').click()" title="Upload the PS Instor query (Trufig inventory) to overlay the main MRP">📥 Upload Instor</button>
         <input type="file" id="tf-instor-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleInstorFile(event)">
         <button class="btn btn-sm" onclick="recalcTrufig()">↺ Recalculate</button>
@@ -5672,13 +5672,57 @@ async function loadTrufigView(force) {
   updateInstorInfo();
 }
 
+function fmtRelativeTime(then) {
+  const nowMs = Date.now();
+  const thenMs = new Date(then).getTime();
+  const diffSec = Math.round((nowMs - thenMs) / 1000);
+  if (isNaN(diffSec)) return '—';
+  if (diffSec < 60)         return 'just now';
+  if (diffSec < 3600)       return `${Math.floor(diffSec/60)}m ago`;
+  if (diffSec < 86400)      return `${Math.floor(diffSec/3600)}h ago`;
+  if (diffSec < 86400 * 7)  return `${Math.floor(diffSec/86400)}d ago`;
+  if (diffSec < 86400 * 30) return `${Math.floor(diffSec/(86400*7))}w ago`;
+  return `${Math.floor(diffSec/(86400*30))}mo ago`;
+}
+
+function fmtPDT(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }) + ' PDT';
+  } catch { return String(iso); }
+}
+
 function updateInstorInfo() {
   const el = document.getElementById('tf-instor-info');
   if (!el) return;
-  if (!instorItems.length) { el.textContent = 'No Instor uploaded yet.'; return; }
-  // Most recent uploaded_at
-  const latest = instorItems.reduce((m, r) => (r.uploaded_at && r.uploaded_at > m ? r.uploaded_at : m), '');
-  el.textContent = `Instor: ${instorItems.length} rows · last upload ${latest ? new Date(latest).toLocaleString() : '—'}`;
+  if (!instorItems.length) {
+    el.innerHTML = '<span style="color:var(--warn)">⚠ No Instor uploaded yet</span>';
+    return;
+  }
+  // Most recent upload event: latest uploaded_at + its file name (from uploaded_by prefix)
+  let latestIso = '';
+  let latestFile = '';
+  instorItems.forEach(r => {
+    if (r.uploaded_at && r.uploaded_at > latestIso) {
+      latestIso = r.uploaded_at;
+      latestFile = (r.uploaded_by || '').replace(/^sp-instor:/, '');
+    }
+  });
+  const rel = fmtRelativeTime(latestIso);
+  const abs = fmtPDT(latestIso);
+  const nRows = instorItems.length;
+  el.innerHTML = `
+    <span style="font-weight:600;color:var(--text)">📥 Last Instor:</span>
+    <span style="color:var(--accent)">${esc(abs)}</span>
+    <span style="color:var(--muted)">(${rel})</span>
+    <span style="color:var(--muted)">·</span>
+    <span style="color:var(--text)">${nRows} SKUs</span>
+    ${latestFile ? `<span style="color:var(--muted)">·</span> <span style="color:var(--muted);font-family:var(--mono);font-size:10px">${esc(latestFile)}</span>` : ''}
+  `;
 }
 
 async function openTrufigTab() {
