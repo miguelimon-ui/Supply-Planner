@@ -379,6 +379,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="tab" id="tab-bom" onclick="switchTab('bom')"><span class="tab-icon">🧱</span> BOMs</div>
     <div class="tab" id="tab-eol" onclick="switchTab('eol')"><span class="tab-icon">🔚</span> EOL</div>
     <div class="tab" id="tab-ss" onclick="switchTab('ss')"><span class="tab-icon">🛡️</span> TRUFIG SS</div>
+    <div class="tab" id="tab-trufig" onclick="switchTab('trufig')"><span class="tab-icon">🔹</span> Trufig Plan</div>
   </div>
 
   <!-- PLAN VIEW -->
@@ -906,6 +907,57 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
           </tr>
         </thead>
         <tbody id="ss-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TRUFIG PLAN VIEW (independent of main Supply Plan; sources sp_mrp_data prefix-5 + sp_mrp_trufig overlay) -->
+  <div id="trufig-view" style="display:none;flex-direction:column;height:calc(100vh - 86px);overflow:hidden">
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:13px;color:var(--text)">🔹 Trufig Plan</span>
+      <span style="font-size:10px;color:var(--muted)">Prefix-5 SKUs · Instor overlay wins over main MRP</span>
+      <input type="text" id="tf-search" placeholder="Item, description, supplier…" oninput="renderTrufigTable()" style="width:220px">
+      <select id="tf-status" onchange="renderTrufigTable()">
+        <option value="">All Status</option>
+        <option value="BELOW">🔴 Below SS</option>
+        <option value="OK">🟢 OK</option>
+        <option value="OVERSTOCK">🟣 Overstock</option>
+      </select>
+      <span class="result-count" id="tf-count"></span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <span id="tf-instor-info" style="font-size:10px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="document.getElementById('tf-instor-input').click()" title="Upload the PS Instor query (Trufig inventory) to overlay the main MRP">📥 Upload Instor</button>
+        <input type="file" id="tf-instor-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleInstorFile(event)">
+        <button class="btn btn-sm" onclick="recalcTrufig()">↺ Recalculate</button>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div class="stat"><div class="stat-v" id="tf-cnt-total" style="color:var(--text)">—</div><div class="stat-l">Items</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-below" style="color:var(--danger)">—</div><div class="stat-l">Below SS</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-ok" style="color:var(--ok)">—</div><div class="stat-l">OK</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-over" style="color:var(--overst)">—</div><div class="stat-l">Overstock</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-instor" style="color:var(--accent)">—</div><div class="stat-l">From Instor</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-mainonly" style="color:var(--muted)">—</div><div class="stat-l">From Main MRP</div></div>
+      <div class="stat"><div class="stat-v" id="tf-val" style="color:var(--accent2)">—</div><div class="stat-l">Inv Value</div></div>
+    </div>
+    <div style="flex:1;overflow:auto">
+      <table style="border-collapse:collapse;font-size:12px;width:100%">
+        <thead>
+          <tr>
+            <th class="is-th">Status</th>
+            <th class="is-th">Item ID</th>
+            <th class="is-th">Description</th>
+            <th class="is-th">Supplier</th>
+            <th class="is-th" style="text-align:right">On Hand</th>
+            <th class="is-th" style="text-align:right">Open PO</th>
+            <th class="is-th" style="text-align:right">MAU</th>
+            <th class="is-th" style="text-align:right">PMU</th>
+            <th class="is-th" style="text-align:right">Effective SS</th>
+            <th class="is-th" style="text-align:right">Reorder Qty</th>
+            <th class="is-th" style="text-align:center">Source</th>
+          </tr>
+        </thead>
+        <tbody id="tf-body"></tbody>
       </table>
     </div>
   </div>
@@ -2118,17 +2170,19 @@ function exportCSV() {
 // TAB SWITCHING
 // ─────────────────────────────────────────────
 function switchTab(tab) {
-  ['plan','po','lt','is','health','bom','eol','ss'].forEach(t => {
-    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  ['plan','po','lt','is','health','bom','eol','ss','trufig'].forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.classList.toggle('active', t === tab);
   });
-  document.getElementById('plan-view').style.display   = tab === 'plan'   ? 'flex' : 'none';
-  document.getElementById('po-view').style.display     = tab === 'po'     ? 'flex' : 'none';
-  document.getElementById('lt-view').style.display     = tab === 'lt'     ? 'flex' : 'none';
-  document.getElementById('is-view').style.display     = tab === 'is'     ? 'flex' : 'none';
-  document.getElementById('health-view').style.display = tab === 'health' ? 'flex' : 'none';
-  document.getElementById('bom-view').style.display    = tab === 'bom'    ? 'flex' : 'none';
-  document.getElementById('eol-view').style.display    = tab === 'eol'    ? 'flex' : 'none';
-  document.getElementById('ss-view').style.display     = tab === 'ss'     ? 'flex' : 'none';
+  document.getElementById('plan-view').style.display    = tab === 'plan'   ? 'flex' : 'none';
+  document.getElementById('po-view').style.display      = tab === 'po'     ? 'flex' : 'none';
+  document.getElementById('lt-view').style.display      = tab === 'lt'     ? 'flex' : 'none';
+  document.getElementById('is-view').style.display      = tab === 'is'     ? 'flex' : 'none';
+  document.getElementById('health-view').style.display  = tab === 'health' ? 'flex' : 'none';
+  document.getElementById('bom-view').style.display     = tab === 'bom'    ? 'flex' : 'none';
+  document.getElementById('eol-view').style.display     = tab === 'eol'    ? 'flex' : 'none';
+  document.getElementById('ss-view').style.display      = tab === 'ss'     ? 'flex' : 'none';
+  document.getElementById('trufig-view').style.display  = tab === 'trufig' ? 'flex' : 'none';
   if (tab === 'po') renderPOView();
   if (tab === 'lt') renderLTView();
   if (tab === 'is') renderISView();
@@ -2136,6 +2190,7 @@ function switchTab(tab) {
   if (tab === 'bom') renderBOMView();
   if (tab === 'eol') renderEOLView();
   if (tab === 'ss') renderSSView();
+  if (tab === 'trufig') openTrufigTab();
 }
 
 // ─────────────────────────────────────────────
@@ -5490,6 +5545,278 @@ function fmtK(n) {
   return n.toFixed(0);
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ─────────────────────────────────────────────
+// TRUFIG PLAN TAB
+// ─────────────────────────────────────────────
+// Independent MRP view scoped to prefix-5 SKUs. Data pipeline:
+//   base   = sp_mrp_data rows where item_id starts with '5'
+//   overlay = sp_mrp_trufig rows (populated by Upload Instor)
+//   union  = overlay wins per item_id; missing SKUs fall back to base
+// Effective SS uses sp_safety_stock manual overrides, same as main Supply Plan.
+
+let instorItems = [];           // raw rows from sp_mrp_trufig
+let rawItemsTrufig = [];        // union of base (main MRP prefix 5) + Instor overlay
+let itemsTrufig = [];           // computed (PMU/SS/status) per row
+let trufigLoaded = false;       // guard so we only load once per session (unless user refreshes)
+
+function trufigMapMRPRow(r) {
+  return {
+    itemId: r.item_id, desc: r.description || '', suppId: r.supplier_id || '', suppName: r.supplier_name || '',
+    onHand: +r.qty_on_hand || 0, avail: +r.qty_available_fg || 0, wip: +r.wip_qty || 0,
+    uom: r.std_uom || 'EA', stdCost: +r.std_cost || 0, value: +r.oh_value || 0,
+    openPO: +r.open_po_qty || 0, 'openPO$': +r.open_po_value || 0,
+    pastDuePO: +r.past_due_po_qty || 0, 'pastDuePO$': +r.past_due_po_value || 0,
+    totalUsage: +r.total_usage || 0, mau: +r.mau || 0, rawMau: +r.mau || 0, projMau: +r.proj_mau || (+r.mau || 0),
+    erpPOs: Array.isArray(r.erp_pos) ? r.erp_pos.map(n => +n || 0) : new Array(12).fill(0),
+    ebBalances: Array.isArray(r.eb_balances) ? r.eb_balances : [],
+    source: r._source || 'main', // 'instor' | 'main'
+  };
+}
+
+async function loadTrufigView(force) {
+  if (trufigLoaded && !force) return;
+  const [baseRows, instorRows] = await Promise.all([
+    sbFetch('sp_mrp_data?item_id=like.5*&select=*&limit=5000'),
+    sbFetch('sp_mrp_trufig?select=*&limit=5000'),
+  ]);
+  const baseArr = (baseRows || []).map(r => ({ ...r, _source: 'main' }));
+  const instorArr = (instorRows || []).map(r => ({ ...r, _source: 'instor' }));
+  instorItems = instorArr;
+  // Union: Instor wins
+  const bySku = {};
+  baseArr.forEach(r => { bySku[String(r.item_id).trim().toUpperCase()] = r; });
+  instorArr.forEach(r => { bySku[String(r.item_id).trim().toUpperCase()] = r; });
+  rawItemsTrufig = Object.values(bySku).map(trufigMapMRPRow);
+  trufigLoaded = true;
+  updateInstorInfo();
+}
+
+function updateInstorInfo() {
+  const el = document.getElementById('tf-instor-info');
+  if (!el) return;
+  if (!instorItems.length) { el.textContent = 'No Instor uploaded yet.'; return; }
+  // Most recent uploaded_at
+  const latest = instorItems.reduce((m, r) => (r.uploaded_at && r.uploaded_at > m ? r.uploaded_at : m), '');
+  el.textContent = `Instor: ${instorItems.length} rows · last upload ${latest ? new Date(latest).toLocaleString() : '—'}`;
+}
+
+async function openTrufigTab() {
+  await loadTrufigView();
+  recalcTrufig();
+}
+
+function recalcTrufig() {
+  // Same logic as the main recalcAll but scoped to rawItemsTrufig and writing to itemsTrufig.
+  const ssMult = +document.getElementById('ss-mult').value || 1;
+  const osMult = +document.getElementById('os-mult').value || 3;
+  itemsTrufig = rawItemsTrufig.map(raw => {
+    const mau = +raw.mau || 0;
+    const projMau = +raw.projMau || mau;
+    const lt = getLT(raw);
+    // Simple PMU across 12 months = projected MAU (no per-month seasonality for V1)
+    const pmu = new Array(12).fill(projMau);
+    let ss = pmu.map(p => Math.ceil(p * ssMult));
+    const os = pmu.map(p => Math.ceil(p * osMult));
+    const manualSS = getManualSS(raw.itemId);
+    if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
+    const effectiveSS = ss[0];
+    const effectiveOS = os[0];
+    // Beginning balance for the first month
+    const bb = raw.onHand + (raw.pastDuePO || 0);
+    const endBB = Math.round(bb - pmu[0]);
+    let status = 'no-usage';
+    const itemIS = getIS(raw.itemId);
+    if (mau === 0 || mau === 999 || itemIS === 'non_plan') status = 'no-usage';
+    else if (endBB < effectiveSS) status = 'BELOW';
+    else if (endBB > effectiveOS) status = 'OVERSTOCK';
+    else status = 'OK';
+    // Reorder qty = max(0, effectiveSS + pmu[0] - onHand - openPO). Rounded up.
+    const reorderQty = status === 'BELOW'
+      ? Math.max(0, Math.ceil(effectiveSS + pmu[0] - raw.onHand - raw.openPO))
+      : 0;
+    return { ...raw, status, effectiveSS, effectiveOS, effectiveSSSource: manualSS !== null ? 'manual' : 'formula', reorderQty, lt };
+  });
+  renderTrufigTable();
+}
+
+function renderTrufigTable() {
+  if (!rawItemsTrufig.length) {
+    document.getElementById('tf-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here.</td></tr>';
+    document.getElementById('tf-count').textContent = '';
+    ['tf-cnt-total','tf-cnt-below','tf-cnt-ok','tf-cnt-over','tf-cnt-instor','tf-cnt-mainonly','tf-val'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+  const search = (document.getElementById('tf-search').value || '').toLowerCase();
+  const fStatus = document.getElementById('tf-status').value;
+  const list = itemsTrufig.filter(it => {
+    if (fStatus && it.status !== fStatus) return false;
+    if (search) {
+      const hay = `${it.itemId} ${it.desc||''} ${it.suppName||''}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  }).sort((a,b) => {
+    // BELOW first, then by MAU desc, then by itemId
+    const order = { BELOW: 0, OK: 1, OVERSTOCK: 2, 'no-usage': 3 };
+    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    if ((b.mau||0) !== (a.mau||0)) return (b.mau||0) - (a.mau||0);
+    return String(a.itemId).localeCompare(String(b.itemId));
+  });
+
+  // Stats
+  const total = itemsTrufig.length;
+  const below = itemsTrufig.filter(i => i.status === 'BELOW').length;
+  const ok    = itemsTrufig.filter(i => i.status === 'OK').length;
+  const over  = itemsTrufig.filter(i => i.status === 'OVERSTOCK').length;
+  const fromInstor = itemsTrufig.filter(i => i.source === 'instor').length;
+  const fromMain   = itemsTrufig.filter(i => i.source === 'main').length;
+  const totalVal = itemsTrufig.reduce((s,i) => s + (+i.value || 0), 0);
+  document.getElementById('tf-cnt-total').textContent    = total.toLocaleString();
+  document.getElementById('tf-cnt-below').textContent    = below.toLocaleString();
+  document.getElementById('tf-cnt-ok').textContent       = ok.toLocaleString();
+  document.getElementById('tf-cnt-over').textContent     = over.toLocaleString();
+  document.getElementById('tf-cnt-instor').textContent   = fromInstor.toLocaleString();
+  document.getElementById('tf-cnt-mainonly').textContent = fromMain.toLocaleString();
+  document.getElementById('tf-val').textContent          = '$' + (totalVal/1000).toFixed(0) + 'k';
+  document.getElementById('tf-count').textContent = `${list.length} of ${total}`;
+
+  document.getElementById('tf-body').innerHTML = list.map(it => {
+    const statusBadge = {
+      BELOW:      '<span class="badge b-danger">BELOW SS</span>',
+      OK:         '<span class="badge b-ok">OK</span>',
+      OVERSTOCK:  '<span class="badge b-over">OVERSTOCK</span>',
+      'no-usage': '<span class="badge b-muted">NO USE</span>',
+    }[it.status] || '';
+    const ssMark = it.effectiveSSSource === 'manual' ? ' <span style="font-size:9px;color:var(--overst)">🛡️</span>' : '';
+    const sourceBadge = it.source === 'instor'
+      ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">INSTOR</span>'
+      : '<span class="badge b-muted">MAIN</span>';
+    const rowBg = it.status === 'BELOW' ? 'background:rgba(248,113,113,.04)' : it.status === 'OVERSTOCK' ? 'background:rgba(167,139,250,.03)' : '';
+    return `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+      <td style="padding:6px 10px">${statusBadge}</td>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(it.itemId)}</td>
+      <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(it.desc||'')}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.onHand)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${it.mau > 0 ? it.mau.toFixed(1) : '—'}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${it.projMau > 0 ? it.projMau.toFixed(1) : '—'}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.effectiveSSSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${fmt(it.effectiveSS)}${ssMark}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${it.reorderQty > 0 ? 'var(--danger)' : 'var(--muted)'}">${it.reorderQty > 0 ? fmt(it.reorderQty) : '—'}</td>
+      <td style="padding:6px 10px;text-align:center">${sourceBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Upload Instor: parse Excel/CSV, wipe sp_mrp_trufig, insert rows, reload view.
+function handleInstorFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  const name = file.name.toLowerCase();
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    let rows;
+    try {
+      if (name.endsWith('.csv')) rows = parseCSV(e.target.result);
+      else {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        // Try each sheet, pick first that looks like an Instor / MRP dump
+        for (const sn of wb.SheetNames) {
+          const trial = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '' });
+          if (trialLooksLikeInstor(trial)) { rows = trial; break; }
+        }
+        if (!rows) rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      }
+    } catch (err) { alert('Failed to parse file: ' + err.message); return; }
+    await applyInstor(rows, file.name);
+  };
+  if (name.endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+function trialLooksLikeInstor(rows) {
+  if (!rows || rows.length < 2) return false;
+  const skuCandidates = ['item','inv_item_id','item_id','sku','part number','part_number'];
+  const qtyCandidates = ['qty owned','qty_owned','qty on hand','qty_on_hand','on hand','on_hand','qty available','qty_available','quantity'];
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
+    const s = hdr.findIndex(h => skuCandidates.includes(h));
+    const q = hdr.findIndex(h => qtyCandidates.includes(h));
+    if (s !== -1 && q !== -1) return true;
+  }
+  return false;
+}
+
+async function applyInstor(rows, fileName) {
+  const skuCandidates = ['item','inv_item_id','item_id','sku','part number','part_number'];
+  const ohCandidates  = ['qty owned','qty_owned','qty on hand','qty_on_hand','on hand','on_hand','qty available','qty_available','quantity'];
+  const descCandidates= ['description','descr','desc','name','item description'];
+  const costCandidates= ['item cost','item_cost','std cost','std_cost','unit cost','unit_cost'];
+  const valCandidates = ['total value','total_value','extended value','extended_value','oh value','oh_value'];
+  const mauCandidates = ['ttm','last 12 month sales monthly run rate','monthly run rate','mau','proj mau','avg monthly usage'];
+
+  let hdrIdx = -1, skuIdx = -1, ohIdx = -1;
+  let descIdx = -1, costIdx = -1, valIdx = -1, mauIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
+    const s = hdr.findIndex(h => skuCandidates.includes(h));
+    const q = hdr.findIndex(h => ohCandidates.includes(h));
+    if (s !== -1 && q !== -1) {
+      hdrIdx = i; skuIdx = s; ohIdx = q;
+      descIdx = hdr.findIndex(h => descCandidates.some(c => h.includes(c) || c.includes(h)));
+      costIdx = hdr.findIndex(h => costCandidates.includes(h));
+      valIdx  = hdr.findIndex(h => valCandidates.includes(h));
+      mauIdx  = hdr.findIndex(h => mauCandidates.some(c => h.includes(c)));
+      break;
+    }
+  }
+  if (hdrIdx === -1) {
+    alert(`Could not find required columns.\n\nExpected SKU column (${skuCandidates.join(', ')}) and On Hand column (${ohCandidates.join(', ')}).\n\nFirst rows:\n${rows.slice(0,3).map(r => (r||[]).join(' | ')).join('\n')}`);
+    return;
+  }
+  const data = rows.slice(hdrIdx + 1).filter(r => r && String(r[skuIdx]||'').trim());
+  if (!data.length) { alert('No data rows to import.'); return; }
+
+  const proceed = confirm(`Upload ${data.length} Instor rows from "${fileName}"?\n\nThis WIPES the current Instor table (sp_mrp_trufig) and replaces it with these rows. The main MRP data (sp_mrp_data) is not touched.`);
+  if (!proceed) return;
+
+  const nowIso = new Date().toISOString();
+  const bodies = data.map(r => ({
+    item_id: String(r[skuIdx]).trim(),
+    description: descIdx !== -1 ? String(r[descIdx] || '').slice(0, 200) : null,
+    qty_on_hand: +r[ohIdx] || 0,
+    std_cost: costIdx !== -1 ? (+r[costIdx] || null) : null,
+    oh_value: valIdx !== -1 ? (+r[valIdx] || null) : null,
+    mau: mauIdx !== -1 ? (+r[mauIdx] || 0) : 0,
+    proj_mau: mauIdx !== -1 ? (+r[mauIdx] || 0) : 0,
+    erp_pos: [0,0,0,0,0,0,0,0,0,0,0,0],
+    uploaded_at: nowIso,
+    uploaded_by: `sp-instor:${fileName}`,
+  }));
+
+  try {
+    // Wipe existing
+    await sbFetch('sp_mrp_trufig?item_id=neq.__NONE__', { method: 'DELETE', write: true, prefer: 'return=minimal' });
+    // Insert in chunks
+    const CHUNK = 500;
+    let done = 0, failed = 0;
+    for (let i = 0; i < bodies.length; i += CHUNK) {
+      const chunk = bodies.slice(i, i + CHUNK);
+      try {
+        await sbFetch('sp_mrp_trufig', { method: 'POST', body: chunk, write: true, prefer: 'return=minimal' });
+        done += chunk.length;
+      } catch (e) { failed += chunk.length; console.warn('Instor chunk failed:', e); }
+    }
+    // Reload and recalc
+    await loadTrufigView(true);
+    recalcTrufig();
+    alert(`✓ Uploaded ${done} Instor rows${failed ? ` · ${failed} failed` : ''}.`);
+  } catch (e) {
+    alert('Instor upload failed: ' + (e.message || e));
+  }
+}
 </script>
 </body>
 </html>
