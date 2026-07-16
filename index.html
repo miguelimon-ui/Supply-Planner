@@ -918,6 +918,13 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <span style="font-weight:600;font-size:13px;color:var(--text)">🔹 Trufig Plan</span>
       <span style="font-size:10px;color:var(--muted)">Prefix-5 SKUs · Instor overlay wins over main MRP</span>
       <input type="text" id="tf-search" placeholder="Item, description, supplier…" oninput="renderTrufigTable()" style="width:220px">
+      <select id="tf-view" onchange="renderTrufigTable()" title="Tania plans by FG. Carlos plans by component. Filter accordingly.">
+        <option value="">All views</option>
+        <option value="fg">🎯 Finished Goods (Tania)</option>
+        <option value="component">🔧 Components (Carlos)</option>
+        <option value="sub">🧩 Sub-assemblies</option>
+        <option value="ungrouped">— No Item Group</option>
+      </select>
       <select id="tf-status" onchange="renderTrufigTable()">
         <option value="">All Status</option>
         <option value="BELOW">🔴 Below SS</option>
@@ -946,21 +953,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     </div>
     <div style="flex:1;overflow:auto">
       <table style="border-collapse:collapse;font-size:12px;width:100%">
-        <thead>
-          <tr>
-            <th class="is-th">Status</th>
-            <th class="is-th">Item ID</th>
-            <th class="is-th">Description</th>
-            <th class="is-th">Supplier</th>
-            <th class="is-th" style="text-align:right">On Hand</th>
-            <th class="is-th" style="text-align:right">Open PO</th>
-            <th class="is-th" style="text-align:right" title="Monthly Average Usage. When a manual SS exists, MAU = SS / ss_months_cover (default 3), shown with 📐. Otherwise from MRP.">MAU</th>
-            <th class="is-th" style="text-align:right">Effective SS</th>
-            <th class="is-th" style="text-align:center" title="MAKE or BUY — editable in TRUFIG SS tab. Drives whether the suggestion is a PID (production release) or PO (purchase order).">Type</th>
-            <th class="is-th" style="text-align:right" title="max(0, ceil(EffectiveSS + PMU − OnHand − OpenPO)) when status is BELOW. Prefix indicates action: PID for make, PO for buy.">Suggested</th>
-            <th class="is-th" style="text-align:center">Data Source</th>
-          </tr>
-        </thead>
+        <thead id="tf-thead"></thead>
         <tbody id="tf-body"></tbody>
       </table>
     </div>
@@ -5640,6 +5633,8 @@ function trufigMapMRPRow(r) {
     erpPOs: Array.isArray(r.erp_pos) ? r.erp_pos.map(n => +n || 0) : new Array(12).fill(0),
     ebBalances: Array.isArray(r.eb_balances) ? r.eb_balances : [],
     qtyByUnit: (r.qty_by_unit && typeof r.qty_by_unit === 'object') ? r.qty_by_unit : {},
+    itemGroup: r.item_group || '',
+    itemCategory: r.item_category || '',
     source: r._source || 'main', // 'instor' | 'main' | 'ss-only'
   };
 }
@@ -5696,20 +5691,23 @@ async function openTrufigTab() {
 }
 
 function recalcTrufig() {
-  // Trufig-scoped compute:
-  //   - MAU: if manual SS exists → MAU = ss_units / ss_months_cover (default 3). Else use MRP MAU.
-  //   - PMU: same MAU across 12 months (V1 has no seasonality).
+  // Trufig-scoped compute with 12-month cascading forecast:
+  //   - MAU: if manual SS → MAU = ss_units / ss_months_cover (default 3). Else MRP MAU.
+  //   - PMU: same MAU across 12 months (V1 no seasonality).
   //   - Effective SS: manual override wins over LT×multiplier formula.
-  //   - Status: BELOW/OK/OVERSTOCK vs (onHand+pastDuePO) − pmu[0].
-  //   - Suggested: max(0, ceil(effectiveSS + pmu[0] − onHand − openPO)) when BELOW.
-  //     Labeled PID (make) or PO (buy) per sp_safety_stock.make_or_buy.
+  //   - Cascade: for each month i, endBB = BB_prev + POs_in_that_month − PMU. When
+  //     endBB drops below SS, suggested[i] = ceil(SS − endBB) and endBB is bumped
+  //     back to SS (assumes suggested PO/PID arrives same month — simple V1 model).
+  //   - Status per month: BELOW / OK / OVERSTOCK. Overall status = worst of first 3.
+  //   - Suggested (headline number) = SUM of suggested[] over 12 months. Labeled
+  //     PID (make) or PO (buy) per sp_safety_stock.make_or_buy.
   const ssMult = +document.getElementById('ss-mult').value || 1;
   const osMult = +document.getElementById('os-mult').value || 3;
   itemsTrufig = rawItemsTrufig.map(raw => {
     const mauInfo  = getEffectiveMAU(raw.itemId, +raw.mau || 0);
     const mau      = mauInfo.mau;
-    const mauSource = mauInfo.source;       // 'derived' (SS/n) or 'mrp'
-    const mauMonths = mauInfo.months;       // months of coverage (only when derived)
+    const mauSource = mauInfo.source;
+    const mauMonths = mauInfo.months;
     const projMau  = mauSource === 'derived' ? mau : (+raw.projMau || mau);
     const lt       = getLT(raw);
     const pmu = new Array(12).fill(projMau);
@@ -5717,28 +5715,83 @@ function recalcTrufig() {
     const os = pmu.map(p => Math.ceil(p * osMult));
     const manualSS = getManualSS(raw.itemId);
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
-    const effectiveSS = ss[0];
-    const effectiveOS = os[0];
-    const bb = raw.onHand + (raw.pastDuePO || 0);
-    const endBB = Math.round(bb - pmu[0]);
-    let status = 'no-usage';
+
     const itemIS = getIS(raw.itemId);
-    if ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan') status = 'no-usage';
-    else if (endBB < effectiveSS) status = 'BELOW';
-    else if (endBB > effectiveOS) status = 'OVERSTOCK';
-    else status = 'OK';
-    const suggested = status === 'BELOW'
-      ? Math.max(0, Math.ceil(effectiveSS + pmu[0] - raw.onHand - raw.openPO))
-      : 0;
-    const kind = getMakeOrBuy(raw.itemId); // 'make' or 'buy'
+    const isNoUsage = ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan');
+
+    // Cascade month-by-month
+    const months = [];
+    const suggested = new Array(12).fill(0);
+    let bb = raw.onHand + (raw.pastDuePO || 0);
+    for (let i = 0; i < 12; i++) {
+      const erpPO = (raw.erpPOs && raw.erpPOs[i]) || 0;
+      let endBB = Math.round(bb + erpPO - pmu[i]);
+      let mStatus = 'no-usage';
+      let mSuggested = 0;
+      if (!isNoUsage) {
+        if (endBB < ss[i]) {
+          mStatus = 'BELOW';
+          mSuggested = Math.max(0, Math.ceil(ss[i] - endBB));
+          endBB = ss[i]; // assume suggested arrives same month
+        } else if (endBB > os[i]) {
+          mStatus = 'OVERSTOCK';
+        } else {
+          mStatus = 'OK';
+        }
+      }
+      months.push({ pmu: pmu[i], ss: ss[i], os: os[i], erpPO, bb: endBB, status: mStatus, suggested: mSuggested });
+      suggested[i] = mSuggested;
+      bb = endBB;
+    }
+
+    // Overall status = worst of first 3 months (matches main Supply Plan)
+    let status = 'no-usage';
+    if (!isNoUsage) {
+      const first3 = months.slice(0, 3).map(m => m.status);
+      if (first3.includes('BELOW')) status = 'BELOW';
+      else if (first3.every(s => s === 'OVERSTOCK')) status = 'OVERSTOCK';
+      else status = 'OK';
+    }
+
+    const suggestedTotal = suggested.reduce((s, n) => s + n, 0);
+    const kind = getMakeOrBuy(raw.itemId);
     return {
       ...raw, mau, projMau, mauSource, mauMonths,
-      status, effectiveSS, effectiveOS,
+      status, effectiveSS: ss[0], effectiveOS: os[0],
       effectiveSSSource: manualSS !== null ? 'manual' : 'formula',
-      suggested, kind, lt,
+      months, suggested, suggestedTotal, kind, lt,
     };
   });
   renderTrufigTable();
+}
+
+// Dynamic thead for the Trufig Plan table: fixed columns + 12 forward months.
+// Rebuilt on each render to reflect the current date.
+function renderTrufigThead() {
+  const el = document.getElementById('tf-thead');
+  if (!el) return;
+  const now = new Date();
+  const monthHdrs = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const label = d.toLocaleString('en-US', { month: 'short' }) + ' ' + String(d.getFullYear()).slice(2);
+    monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${i===0?'rgba(0,163,225,.08)':'inherit'}">${label}</th>`);
+  }
+  el.innerHTML = `<tr>
+    <th class="is-th">Status</th>
+    <th class="is-th">Item ID</th>
+    <th class="is-th">Description</th>
+    <th class="is-th">Supplier</th>
+    <th class="is-th" style="text-align:center">Group</th>
+    <th class="is-th" style="text-align:right">On Hand</th>
+    <th class="is-th" style="text-align:right">Open PO</th>
+    <th class="is-th" style="text-align:right" title="Monthly Average Usage. When manual SS exists → MAU = SS / months_cover (default 3), shown with 📐. Otherwise from MRP.">MAU</th>
+    <th class="is-th" style="text-align:right">Effective SS</th>
+    <th class="is-th" style="text-align:center" title="MAKE or BUY — editable in TRUFIG SS tab.">Type</th>
+    <th class="is-th" style="text-align:right" title="SUM of suggested PID/PO across the 12-month cascade.">Suggested (12m)</th>
+    ${monthHdrs.join('')}
+    <th class="is-th" style="text-align:center">Data Source</th>
+  </tr>`;
 }
 
 // Render the On Hand cell for Trufig Plan.
@@ -5764,15 +5817,28 @@ function renderOnHandCell(it) {
 }
 
 function renderTrufigTable() {
+  renderTrufigThead();
+  const COLSPAN = 24; // 11 fixed + 12 months + 1 source
   if (!rawItemsTrufig.length) {
-    document.getElementById('tf-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>';
+    document.getElementById('tf-body').innerHTML = `<tr><td colspan="${COLSPAN}" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>`;
     document.getElementById('tf-count').textContent = '';
     ['tf-cnt-total','tf-cnt-below','tf-cnt-ok','tf-cnt-over','tf-cnt-make','tf-cnt-buy','tf-cnt-instor','tf-cnt-mainonly','tf-cnt-ssonly','tf-val'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
     return;
   }
   const search = (document.getElementById('tf-search').value || '').toLowerCase();
   const fStatus = document.getElementById('tf-status').value;
+  const fView = document.getElementById('tf-view') ? document.getElementById('tf-view').value : '';
+  const viewMatch = (it) => {
+    if (!fView) return true;
+    const g = (it.itemGroup || '').toUpperCase();
+    if (fView === 'fg')        return g === 'FINISHED_GOODS';
+    if (fView === 'component') return g === 'COMPONENT';
+    if (fView === 'sub')       return g === 'SUBASSEMBLY';
+    if (fView === 'ungrouped') return !g;
+    return true;
+  };
   const list = itemsTrufig.filter(it => {
+    if (!viewMatch(it)) return false;
     if (fStatus && it.status !== fStatus) return false;
     if (search) {
       const hay = `${it.itemId} ${it.desc||''} ${it.suppName||''}`.toLowerCase();
@@ -5822,9 +5888,13 @@ function renderTrufigTable() {
     const kindTag = it.kind === 'make'
       ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">MAKE</span>'
       : '<span class="badge b-muted">BUY</span>';
+    const groupBadge = it.itemGroup === 'FINISHED_GOODS' ? '<span class="badge b-ok" title="Finished Good">🎯 FG</span>'
+                     : it.itemGroup === 'COMPONENT'     ? '<span class="badge b-muted" title="Component">🔧 COMP</span>'
+                     : it.itemGroup === 'SUBASSEMBLY'   ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)" title="Sub-assembly">🧩 SUB</span>'
+                     : '<span class="badge b-muted" title="No Item Group in Instor">—</span>';
     const suggestedPrefix = it.kind === 'make' ? 'PID' : 'PO';
-    const suggestedCell = it.suggested > 0
-      ? `<span style="color:${it.kind==='make'?'var(--accent)':'var(--danger)'};font-weight:700">${suggestedPrefix}: ${fmt(it.suggested)}</span>`
+    const suggestedCell = it.suggestedTotal > 0
+      ? `<span style="color:${it.kind==='make'?'var(--accent)':'var(--danger)'};font-weight:700">${suggestedPrefix}: ${fmt(it.suggestedTotal)}</span>`
       : '<span style="color:var(--muted)">—</span>';
     const sourceBadge = {
       instor:  '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">INSTOR</span>',
@@ -5834,17 +5904,36 @@ function renderTrufigTable() {
     const rowBg = it.source === 'ss-only' ? 'background:rgba(167,139,250,.04);opacity:.9'
                 : it.status === 'BELOW'   ? 'background:rgba(248,113,113,.04)'
                 : it.status === 'OVERSTOCK' ? 'background:rgba(167,139,250,.03)' : '';
+
+    // 12-month cascade cells
+    const monthCells = (it.months || []).map((m, mi) => {
+      const stColor = m.status === 'BELOW' ? 'var(--danger)' : m.status === 'OVERSTOCK' ? 'var(--overst)' : m.status === 'OK' ? 'var(--ok)' : 'var(--muted)';
+      const stMark  = m.status === 'BELOW' ? '▼' : m.status === 'OVERSTOCK' ? '▲' : m.status === 'OK' ? '●' : '·';
+      const sugTxt = m.suggested > 0
+        ? `<div style="font-size:10px;font-weight:700;color:${it.kind==='make'?'var(--accent)':'var(--danger)'}">${suggestedPrefix}:${fmt(m.suggested)}</div>`
+        : '';
+      const erpTxt = m.erpPO > 0 ? `<div style="font-size:9px;color:var(--accent2)">ERP:${fmt(m.erpPO)}</div>` : '';
+      return `<td style="padding:4px 6px;text-align:right;font-family:var(--mono);vertical-align:top;border-left:1px solid var(--rule-soft);${mi===0?'background:rgba(0,163,225,.03)':''}">
+        <div style="font-size:9px;color:${stColor};font-weight:600">${stMark} ${m.status === 'no-usage' ? '' : m.status}</div>
+        <div style="font-size:11px">${fmt(m.bb)}</div>
+        ${sugTxt}
+        ${erpTxt}
+      </td>`;
+    }).join('');
+
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}">
       <td style="padding:6px 10px">${statusBadge}</td>
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(it.itemId)}</td>
-      <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(it.desc||'')}</td>
+      <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
+      <td style="padding:6px 10px;text-align:center">${groupBadge}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${renderOnHandCell(it)}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.mauSource==='derived' ? 'var(--accent)' : 'var(--muted)'}">${it.mau > 0 ? it.mau.toFixed(1) : '—'}${mauMark}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.effectiveSSSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${fmt(it.effectiveSS)}${ssMark}</td>
       <td style="padding:6px 10px;text-align:center">${kindTag}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${suggestedCell}</td>
+      ${monthCells}
       <td style="padding:6px 10px;text-align:center">${sourceBadge}</td>
     </tr>`;
   }).join('');
@@ -5899,9 +5988,11 @@ async function applyInstor(rows, fileName) {
   const mauCandidates = ['ttm','last 12 month sales monthly run rate','monthly run rate','mau','proj mau','avg monthly usage'];
 
   // Also detect Unit column for per-BU breakdown (Instor is a Unit×Location dump)
-  const unitCandidates = ['unit','business unit','bu','business_unit'];
+  const unitCandidates  = ['unit','business unit','bu','business_unit'];
+  const groupCandidates = ['item group','item_group','group'];
+  const catCandidates   = ['category','item category','item_category'];
   let hdrIdx = -1, skuIdx = -1, ohIdx = -1;
-  let descIdx = -1, costIdx = -1, valIdx = -1, mauIdx = -1, unitIdx = -1;
+  let descIdx = -1, costIdx = -1, valIdx = -1, mauIdx = -1, unitIdx = -1, groupIdx = -1, catIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
     const hdr = (rows[i] || []).map(h => String(h || '').trim().toLowerCase());
     const s = hdr.findIndex(h => skuCandidates.includes(h));
@@ -5913,6 +6004,8 @@ async function applyInstor(rows, fileName) {
       valIdx  = hdr.findIndex(h => valCandidates.includes(h));
       mauIdx  = hdr.findIndex(h => mauCandidates.some(c => h.includes(c)));
       unitIdx = hdr.findIndex(h => unitCandidates.includes(h));
+      groupIdx= hdr.findIndex(h => groupCandidates.includes(h));
+      catIdx  = hdr.findIndex(h => catCandidates.includes(h));
       break;
     }
   }
@@ -5939,13 +6032,17 @@ async function applyInstor(rows, fileName) {
     const val  = valIdx  !== -1 ? +r[valIdx]  || 0 : (qty * cost);
     const desc = descIdx !== -1 ? String(r[descIdx] || '').trim() : '';
     const mau  = mauIdx  !== -1 ? +r[mauIdx]  || 0 : 0;
-    const rec  = bySku.get(sku) || { sku, byUnit: {}, totalQty: 0, val: 0, weightedCost: 0, weightSum: 0, desc: '', mau: 0, locations: 0 };
+    const grp  = groupIdx !== -1 ? String(r[groupIdx] || '').trim().toUpperCase() : '';
+    const cat  = catIdx   !== -1 ? String(r[catIdx]   || '').trim().toUpperCase() : '';
+    const rec  = bySku.get(sku) || { sku, byUnit: {}, totalQty: 0, val: 0, weightedCost: 0, weightSum: 0, desc: '', mau: 0, locations: 0, group: '', category: '' };
     rec.byUnit[unit] = (rec.byUnit[unit] || 0) + qty;
     rec.totalQty += qty;
     rec.val += val;
     if (qty > 0 && cost > 0) { rec.weightedCost += cost * qty; rec.weightSum += qty; }
     if (!rec.desc && desc) rec.desc = desc;
     if (mau > rec.mau) rec.mau = mau;
+    if (!rec.group && grp) rec.group = grp;
+    if (!rec.category && cat) rec.category = cat;
     rec.locations += 1;
     bySku.set(sku, rec);
   }
@@ -5984,6 +6081,8 @@ async function applyInstor(rows, fileName) {
     proj_mau: r.mau,
     erp_pos: [0,0,0,0,0,0,0,0,0,0,0,0],
     qty_by_unit: r.byUnit, // full breakdown for display / future WMS work
+    item_group: r.group || null,       // FINISHED_GOODS / COMPONENT / SUBASSEMBLY
+    item_category: r.category || null, // LUXE / CNCT_CNCTMNT / PARTS / etc.
     uploaded_at: nowIso,
     uploaded_by: `sp-instor:${fileName}`,
   }));
