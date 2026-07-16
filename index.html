@@ -901,6 +901,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
             <th class="is-th" style="text-align:right">Current OH</th>
             <th class="is-th" style="text-align:right;width:100px">Manual SS</th>
             <th class="is-th" style="text-align:right;width:110px">Effective SS</th>
+            <th class="is-th" style="text-align:center;width:80px" title="MAKE = suggest PID (production release). BUY = suggest PO. Editable per row.">Make/Buy</th>
             <th class="is-th" style="text-align:center;width:90px">Source</th>
             <th class="is-th">Notes</th>
             <th class="is-th" style="width:70px"></th>
@@ -936,8 +937,11 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <div class="stat"><div class="stat-v" id="tf-cnt-below" style="color:var(--danger)">—</div><div class="stat-l">Below SS</div></div>
       <div class="stat"><div class="stat-v" id="tf-cnt-ok" style="color:var(--ok)">—</div><div class="stat-l">OK</div></div>
       <div class="stat"><div class="stat-v" id="tf-cnt-over" style="color:var(--overst)">—</div><div class="stat-l">Overstock</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-make" style="color:var(--accent)">—</div><div class="stat-l">MAKE items</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-buy" style="color:var(--muted)">—</div><div class="stat-l">BUY items</div></div>
       <div class="stat"><div class="stat-v" id="tf-cnt-instor" style="color:var(--accent)">—</div><div class="stat-l">From Instor</div></div>
       <div class="stat"><div class="stat-v" id="tf-cnt-mainonly" style="color:var(--muted)">—</div><div class="stat-l">From Main MRP</div></div>
+      <div class="stat"><div class="stat-v" id="tf-cnt-ssonly" style="color:var(--overst)">—</div><div class="stat-l">SS only (no MRP)</div></div>
       <div class="stat"><div class="stat-v" id="tf-val" style="color:var(--accent2)">—</div><div class="stat-l">Inv Value</div></div>
     </div>
     <div style="flex:1;overflow:auto">
@@ -950,11 +954,11 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
             <th class="is-th">Supplier</th>
             <th class="is-th" style="text-align:right">On Hand</th>
             <th class="is-th" style="text-align:right">Open PO</th>
-            <th class="is-th" style="text-align:right">MAU</th>
-            <th class="is-th" style="text-align:right">PMU</th>
+            <th class="is-th" style="text-align:right" title="Monthly Average Usage. When a manual SS exists, MAU = SS / ss_months_cover (default 3), shown with 📐. Otherwise from MRP.">MAU</th>
             <th class="is-th" style="text-align:right">Effective SS</th>
-            <th class="is-th" style="text-align:right">Reorder Qty</th>
-            <th class="is-th" style="text-align:center">Source</th>
+            <th class="is-th" style="text-align:center" title="MAKE or BUY — editable in TRUFIG SS tab. Drives whether the suggestion is a PID (production release) or PO (purchase order).">Type</th>
+            <th class="is-th" style="text-align:right" title="max(0, ceil(EffectiveSS + PMU − OnHand − OpenPO)) when status is BELOW. Prefix indicates action: PID for make, PO for buy.">Suggested</th>
+            <th class="is-th" style="text-align:center">Data Source</th>
           </tr>
         </thead>
         <tbody id="tf-body"></tbody>
@@ -4074,6 +4078,8 @@ async function loadSafetyStock() {
       ss_units: +r.ss_units || 0,
       source: r.source || 'manual',
       notes: r.notes || '',
+      make_or_buy: r.make_or_buy || 'buy',
+      ss_months_cover: +r.ss_months_cover || 3,
       updated_by: r.updated_by || '',
       updated_at: r.updated_at || null,
     };
@@ -4083,6 +4089,22 @@ async function loadSafetyStock() {
 function getManualSS(itemId) {
   const rec = safetyStock[String(itemId).trim().toUpperCase()];
   return rec ? rec.ss_units : null;
+}
+
+function getMakeOrBuy(itemId) {
+  const rec = safetyStock[String(itemId).trim().toUpperCase()];
+  return rec ? rec.make_or_buy : 'buy';
+}
+
+// Derive MAU from manual SS when available (Miguel's rule: SS covers N months of demand).
+// Returns { mau, source } — source is 'derived' when derived from SS, 'mrp' otherwise.
+function getEffectiveMAU(itemId, mrpMau) {
+  const rec = safetyStock[String(itemId).trim().toUpperCase()];
+  if (rec && +rec.ss_units > 0) {
+    const months = +rec.ss_months_cover || 3;
+    return { mau: +rec.ss_units / months, source: 'derived', months };
+  }
+  return { mau: +mrpMau || 0, source: 'mrp', months: null };
 }
 
 // Effective SS = manual SS if present, else the formula value from items[].
@@ -4166,7 +4188,7 @@ function renderSSView() {
   document.getElementById('ss-count').textContent = `${list.length} items`;
 
   if (!list.length) {
-    body.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No items match the current filter.</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:40px">No items match the current filter.</td></tr>';
     return;
   }
 
@@ -4176,6 +4198,7 @@ function renderSSView() {
     const manualVal = rec ? rec.ss_units : '';
     const source = rec ? rec.source : 'formula';
     const notes = rec ? rec.notes : '';
+    const makeOrBuy = rec ? (rec.make_or_buy || 'buy') : 'buy';
     // Effective SS for items in current MRP comes from items[]; for not-in-MRP
     // items it's just the manual value (no formula runs without MRP data).
     const it = i.inMRP ? items.find(x => x.itemId === i.itemId) : null;
@@ -4211,6 +4234,12 @@ function renderSSView() {
           style="width:80px;text-align:right;font-family:var(--mono);font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:3px 6px">
       </td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${effSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${effDisp}</td>
+      <td style="padding:6px 10px;text-align:center">
+        <select onchange="setMakeOrBuy('${esc(i.itemId)}',this.value)" style="font-size:11px;font-family:var(--mono);font-weight:600;background:${makeOrBuy==='make' ? 'rgba(0,163,225,.12)' : 'rgba(148,163,184,.10)'};color:${makeOrBuy==='make' ? 'var(--accent)' : 'var(--muted)'};border:1px solid var(--border);border-radius:3px;padding:3px 6px;cursor:pointer">
+          <option value="buy"  ${makeOrBuy==='buy'  ? 'selected' : ''}>BUY</option>
+          <option value="make" ${makeOrBuy==='make' ? 'selected' : ''}>MAKE</option>
+        </select>
+      </td>
       <td style="padding:6px 10px;text-align:center">${sourceBadge}${isBelow ? ' <span style="color:var(--danger);font-size:9px;margin-left:4px">BELOW</span>' : ''}${noMrpBadge}</td>
       <td style="padding:6px 10px">
         <input type="text" class="ss-notes-input" value="${esc(notes)}" placeholder="—"
@@ -4234,9 +4263,13 @@ async function setManualSS(itemId, valueStr, notes) {
   }
   const num = +val;
   if (!isFinite(num) || num < 0) { alert('Safety Stock must be a non-negative number.'); return; }
+  const existing = safetyStock[key] || {};
   const body = {
     item_id: itemId, ss_units: num, source: 'manual',
-    notes: notes || null, updated_by: 'sp-ui',
+    notes: notes || null,
+    make_or_buy: existing.make_or_buy || 'buy',
+    ss_months_cover: existing.ss_months_cover || 3,
+    updated_by: 'sp-ui',
     updated_at: new Date().toISOString(),
   };
   try {
@@ -4245,12 +4278,48 @@ async function setManualSS(itemId, valueStr, notes) {
       headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
       body: [body],
     });
-    safetyStock[key] = { ss_units: num, source: 'manual', notes: notes || '', updated_by: 'sp-ui', updated_at: body.updated_at };
+    safetyStock[key] = {
+      ss_units: num, source: 'manual', notes: notes || '',
+      make_or_buy: body.make_or_buy, ss_months_cover: body.ss_months_cover,
+      updated_by: 'sp-ui', updated_at: body.updated_at,
+    };
     // Refresh items[] so Supply Plan reflects new SS immediately
     recalcAll();
+    if (typeof recalcTrufig === 'function' && trufigLoaded) recalcTrufig();
     renderSSView();
   } catch (e) {
     alert('Failed to save SS: ' + (e.message || e));
+  }
+}
+
+// Update just make_or_buy for an item. Creates the sp_safety_stock row with
+// ss_units=0 if one doesn't exist (so Carlos can classify items before setting SS).
+async function setMakeOrBuy(itemId, value) {
+  const key = String(itemId).trim().toUpperCase();
+  const v = value === 'make' ? 'make' : 'buy';
+  const existing = safetyStock[key];
+  const body = existing
+    ? { item_id: itemId, ss_units: existing.ss_units, source: existing.source, notes: existing.notes || null,
+        make_or_buy: v, ss_months_cover: existing.ss_months_cover || 3,
+        updated_by: 'sp-ui', updated_at: new Date().toISOString() }
+    : { item_id: itemId, ss_units: 0, source: 'manual', notes: null,
+        make_or_buy: v, ss_months_cover: 3,
+        updated_by: 'sp-ui', updated_at: new Date().toISOString() };
+  try {
+    await sbFetch('sp_safety_stock', {
+      method: 'POST', write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: [body],
+    });
+    safetyStock[key] = {
+      ss_units: body.ss_units, source: body.source, notes: body.notes || '',
+      make_or_buy: v, ss_months_cover: body.ss_months_cover,
+      updated_by: 'sp-ui', updated_at: body.updated_at,
+    };
+    if (typeof recalcTrufig === 'function' && trufigLoaded) recalcTrufig();
+    renderSSView();
+  } catch (e) {
+    alert('Failed to save Make/Buy: ' + (e.message || e));
   }
 }
 
@@ -5583,10 +5652,25 @@ async function loadTrufigView(force) {
   const baseArr = (baseRows || []).map(r => ({ ...r, _source: 'main' }));
   const instorArr = (instorRows || []).map(r => ({ ...r, _source: 'instor' }));
   instorItems = instorArr;
-  // Union: Instor wins
+  // Union: Instor wins over main MRP
   const bySku = {};
   baseArr.forEach(r => { bySku[String(r.item_id).trim().toUpperCase()] = r; });
   instorArr.forEach(r => { bySku[String(r.item_id).trim().toUpperCase()] = r; });
+  // Also surface SS-only items (in sp_safety_stock but not in MRP/Instor). They get a
+  // synthetic row with OnHand=0 so the plan can still suggest a PID/PO based on SS.
+  Object.keys(safetyStock).forEach(k => {
+    if (bySku[k]) return;
+    const rec = safetyStock[k];
+    bySku[k] = {
+      item_id: k, description: rec.notes || '',
+      qty_on_hand: 0, qty_available_fg: 0, wip_qty: 0, std_uom: 'EA', std_cost: 0, oh_value: 0,
+      supplier_id: '', supplier_name: '', supplier_unit_price: 0,
+      open_po_qty: 0, open_po_value: 0, past_due_po_qty: 0, past_due_po_value: 0,
+      total_usage: 0, mau: 0, proj_mau: 0,
+      erp_pos: [0,0,0,0,0,0,0,0,0,0,0,0], eb_balances: [],
+      _source: 'ss-only',
+    };
+  });
   rawItemsTrufig = Object.values(bySku).map(trufigMapMRPRow);
   trufigLoaded = true;
   updateInstorInfo();
@@ -5602,19 +5686,31 @@ function updateInstorInfo() {
 }
 
 async function openTrufigTab() {
+  // Ensure SS is loaded so ss-only items surface + MAU derivation works on first open.
+  if (!Object.keys(safetyStock).length) {
+    try { await loadSafetyStock(); } catch (e) { console.warn('SS load failed:', e); }
+  }
   await loadTrufigView();
   recalcTrufig();
 }
 
 function recalcTrufig() {
-  // Same logic as the main recalcAll but scoped to rawItemsTrufig and writing to itemsTrufig.
+  // Trufig-scoped compute:
+  //   - MAU: if manual SS exists → MAU = ss_units / ss_months_cover (default 3). Else use MRP MAU.
+  //   - PMU: same MAU across 12 months (V1 has no seasonality).
+  //   - Effective SS: manual override wins over LT×multiplier formula.
+  //   - Status: BELOW/OK/OVERSTOCK vs (onHand+pastDuePO) − pmu[0].
+  //   - Suggested: max(0, ceil(effectiveSS + pmu[0] − onHand − openPO)) when BELOW.
+  //     Labeled PID (make) or PO (buy) per sp_safety_stock.make_or_buy.
   const ssMult = +document.getElementById('ss-mult').value || 1;
   const osMult = +document.getElementById('os-mult').value || 3;
   itemsTrufig = rawItemsTrufig.map(raw => {
-    const mau = +raw.mau || 0;
-    const projMau = +raw.projMau || mau;
-    const lt = getLT(raw);
-    // Simple PMU across 12 months = projected MAU (no per-month seasonality for V1)
+    const mauInfo  = getEffectiveMAU(raw.itemId, +raw.mau || 0);
+    const mau      = mauInfo.mau;
+    const mauSource = mauInfo.source;       // 'derived' (SS/n) or 'mrp'
+    const mauMonths = mauInfo.months;       // months of coverage (only when derived)
+    const projMau  = mauSource === 'derived' ? mau : (+raw.projMau || mau);
+    const lt       = getLT(raw);
     const pmu = new Array(12).fill(projMau);
     let ss = pmu.map(p => Math.ceil(p * ssMult));
     const os = pmu.map(p => Math.ceil(p * osMult));
@@ -5622,29 +5718,33 @@ function recalcTrufig() {
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
     const effectiveSS = ss[0];
     const effectiveOS = os[0];
-    // Beginning balance for the first month
     const bb = raw.onHand + (raw.pastDuePO || 0);
     const endBB = Math.round(bb - pmu[0]);
     let status = 'no-usage';
     const itemIS = getIS(raw.itemId);
-    if (mau === 0 || mau === 999 || itemIS === 'non_plan') status = 'no-usage';
+    if ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan') status = 'no-usage';
     else if (endBB < effectiveSS) status = 'BELOW';
     else if (endBB > effectiveOS) status = 'OVERSTOCK';
     else status = 'OK';
-    // Reorder qty = max(0, effectiveSS + pmu[0] - onHand - openPO). Rounded up.
-    const reorderQty = status === 'BELOW'
+    const suggested = status === 'BELOW'
       ? Math.max(0, Math.ceil(effectiveSS + pmu[0] - raw.onHand - raw.openPO))
       : 0;
-    return { ...raw, status, effectiveSS, effectiveOS, effectiveSSSource: manualSS !== null ? 'manual' : 'formula', reorderQty, lt };
+    const kind = getMakeOrBuy(raw.itemId); // 'make' or 'buy'
+    return {
+      ...raw, mau, projMau, mauSource, mauMonths,
+      status, effectiveSS, effectiveOS,
+      effectiveSSSource: manualSS !== null ? 'manual' : 'formula',
+      suggested, kind, lt,
+    };
   });
   renderTrufigTable();
 }
 
 function renderTrufigTable() {
   if (!rawItemsTrufig.length) {
-    document.getElementById('tf-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here.</td></tr>';
+    document.getElementById('tf-body').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>';
     document.getElementById('tf-count').textContent = '';
-    ['tf-cnt-total','tf-cnt-below','tf-cnt-ok','tf-cnt-over','tf-cnt-instor','tf-cnt-mainonly','tf-val'].forEach(id => document.getElementById(id).textContent = '—');
+    ['tf-cnt-total','tf-cnt-below','tf-cnt-ok','tf-cnt-over','tf-cnt-make','tf-cnt-buy','tf-cnt-instor','tf-cnt-mainonly','tf-cnt-ssonly','tf-val'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
     return;
   }
   const search = (document.getElementById('tf-search').value || '').toLowerCase();
@@ -5671,13 +5771,19 @@ function renderTrufigTable() {
   const over  = itemsTrufig.filter(i => i.status === 'OVERSTOCK').length;
   const fromInstor = itemsTrufig.filter(i => i.source === 'instor').length;
   const fromMain   = itemsTrufig.filter(i => i.source === 'main').length;
+  const fromSSonly = itemsTrufig.filter(i => i.source === 'ss-only').length;
+  const makeCount  = itemsTrufig.filter(i => i.kind === 'make').length;
+  const buyCount   = itemsTrufig.filter(i => i.kind === 'buy').length;
   const totalVal = itemsTrufig.reduce((s,i) => s + (+i.value || 0), 0);
   document.getElementById('tf-cnt-total').textContent    = total.toLocaleString();
   document.getElementById('tf-cnt-below').textContent    = below.toLocaleString();
   document.getElementById('tf-cnt-ok').textContent       = ok.toLocaleString();
   document.getElementById('tf-cnt-over').textContent     = over.toLocaleString();
+  document.getElementById('tf-cnt-make').textContent     = makeCount.toLocaleString();
+  document.getElementById('tf-cnt-buy').textContent      = buyCount.toLocaleString();
   document.getElementById('tf-cnt-instor').textContent   = fromInstor.toLocaleString();
   document.getElementById('tf-cnt-mainonly').textContent = fromMain.toLocaleString();
+  document.getElementById('tf-cnt-ssonly').textContent   = fromSSonly.toLocaleString();
   document.getElementById('tf-val').textContent          = '$' + (totalVal/1000).toFixed(0) + 'k';
   document.getElementById('tf-count').textContent = `${list.length} of ${total}`;
 
@@ -5688,11 +5794,23 @@ function renderTrufigTable() {
       OVERSTOCK:  '<span class="badge b-over">OVERSTOCK</span>',
       'no-usage': '<span class="badge b-muted">NO USE</span>',
     }[it.status] || '';
-    const ssMark = it.effectiveSSSource === 'manual' ? ' <span style="font-size:9px;color:var(--overst)">🛡️</span>' : '';
-    const sourceBadge = it.source === 'instor'
-      ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">INSTOR</span>'
-      : '<span class="badge b-muted">MAIN</span>';
-    const rowBg = it.status === 'BELOW' ? 'background:rgba(248,113,113,.04)' : it.status === 'OVERSTOCK' ? 'background:rgba(167,139,250,.03)' : '';
+    const ssMark  = it.effectiveSSSource === 'manual' ? ' <span style="font-size:9px;color:var(--overst)" title="Manual SS from TRUFIG SS tab">🛡️</span>' : '';
+    const mauMark = it.mauSource === 'derived' ? ` <span style="font-size:9px;color:var(--accent)" title="Derived: SS / ${it.mauMonths} months">📐</span>` : '';
+    const kindTag = it.kind === 'make'
+      ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">MAKE</span>'
+      : '<span class="badge b-muted">BUY</span>';
+    const suggestedPrefix = it.kind === 'make' ? 'PID' : 'PO';
+    const suggestedCell = it.suggested > 0
+      ? `<span style="color:${it.kind==='make'?'var(--accent)':'var(--danger)'};font-weight:700">${suggestedPrefix}: ${fmt(it.suggested)}</span>`
+      : '<span style="color:var(--muted)">—</span>';
+    const sourceBadge = {
+      instor:  '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">INSTOR</span>',
+      main:    '<span class="badge b-muted">MAIN</span>',
+      'ss-only':'<span class="badge" style="background:rgba(167,139,250,.12);color:var(--overst)" title="Only in Safety Stock — no MRP data yet. OnHand assumed 0.">📭 SS-ONLY</span>',
+    }[it.source] || '<span class="badge b-muted">?</span>';
+    const rowBg = it.source === 'ss-only' ? 'background:rgba(167,139,250,.04);opacity:.9'
+                : it.status === 'BELOW'   ? 'background:rgba(248,113,113,.04)'
+                : it.status === 'OVERSTOCK' ? 'background:rgba(167,139,250,.03)' : '';
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}">
       <td style="padding:6px 10px">${statusBadge}</td>
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(it.itemId)}</td>
@@ -5700,10 +5818,10 @@ function renderTrufigTable() {
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.onHand)}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)">${it.mau > 0 ? it.mau.toFixed(1) : '—'}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${it.projMau > 0 ? it.projMau.toFixed(1) : '—'}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.mauSource==='derived' ? 'var(--accent)' : 'var(--muted)'}">${it.mau > 0 ? it.mau.toFixed(1) : '—'}${mauMark}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.effectiveSSSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${fmt(it.effectiveSS)}${ssMark}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${it.reorderQty > 0 ? 'var(--danger)' : 'var(--muted)'}">${it.reorderQty > 0 ? fmt(it.reorderQty) : '—'}</td>
+      <td style="padding:6px 10px;text-align:center">${kindTag}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${suggestedCell}</td>
       <td style="padding:6px 10px;text-align:center">${sourceBadge}</td>
     </tr>`;
   }).join('');
