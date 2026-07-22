@@ -432,6 +432,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     <div class="stat" id="st-filtered-po-wrap" style="display:none"><div class="stat-v" id="st-filtered-po" style="color:var(--accent2)">—</div><div class="stat-l">Filtered POs</div></div>
     <div class="stat" id="st-filtered-turns-wrap" style="display:none"><div class="stat-v" id="st-filtered-turns" style="color:var(--accent2)">—</div><div class="stat-l">Filtered Turns</div></div>
     <div class="stats-right">
+      <button class="btn btn-sm" onclick="openEODReport()" title="Printable end-of-day summary: KPIs, POs to place, critical items, flags">📋 EOD Report</button>
       <button class="btn btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
   </div>
@@ -2167,6 +2168,188 @@ function exportCSV() {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'supply_plan.csv';
   a.click();
+}
+
+// ─────────────────────────────────────────────
+// END OF DAY REPORT
+// Printable one-page snapshot of the current plan: KPIs, POs to place
+// this month / next month by supplier, critical below-SS items, past-due
+// POs, demand anomalies and hold/overstock flags.
+// ─────────────────────────────────────────────
+function openEODReport() {
+  if (!items.length) { alert('No MRP data loaded yet. Upload the ERP export or load from cloud first.'); return; }
+
+  const usd  = n => '$' + Math.round(n || 0).toLocaleString();
+  const est$ = it => it.unitPx || it.stdCost || 0;
+
+  const active = items.filter(i => i.status !== 'no-usage');
+  const below  = active.filter(i => i.status === 'BELOW');
+  const over   = active.filter(i => i.status === 'OVERSTOCK');
+  const invVal = items.reduce((s, i) => s + i.value, 0);
+  const poVal  = items.reduce((s, i) => s + i['openPO$'], 0);
+  const annualUsage = items.reduce((s, i) => s + (i.mau * 12 * i.stdCost), 0);
+  const turns = invVal > 0 ? annualUsage / invVal : 0;
+
+  // ── POs to place: suggested qty in month 0 / month 1, grouped by supplier
+  const poLines = items
+    .map(it => ({ it, q0: it.suggested[0] || 0, q1: it.suggested[1] || 0 }))
+    .filter(l => l.q0 > 0 || l.q1 > 0)
+    .map(l => ({ ...l, val: (l.q0 + l.q1) * est$(l.it) }));
+  const bySupp = {};
+  poLines.forEach(l => {
+    const s = l.it.suppName || '(No supplier)';
+    (bySupp[s] = bySupp[s] || []).push(l);
+  });
+  const suppOrder = Object.keys(bySupp)
+    .sort((a, b) => bySupp[b].reduce((s, l) => s + l.val, 0) - bySupp[a].reduce((s, l) => s + l.val, 0));
+  const poTotal = poLines.reduce((s, l) => s + l.val, 0);
+
+  // ── Critical items: BELOW within the first 3 months, ordered by how soon
+  const critical = below.map(it => {
+    let firstMo = it.months.findIndex(m => m.status === 'BELOW');
+    if (firstMo < 0) firstMo = 0;
+    return { it, firstMo };
+  }).sort((a, b) => a.firstMo - b.firstMo || (b.it.mau * b.it.stdCost) - (a.it.mau * a.it.stdCost));
+  const CRIT_CAP = 25;
+
+  // ── Past-due POs (Month < 0 in the ERP export)
+  const pastDue = items.filter(i => i.pastDuePO > 0)
+    .sort((a, b) => b['pastDuePO$'] - a['pastDuePO$']);
+  const pastDueVal = pastDue.reduce((s, i) => s + i['pastDuePO$'], 0);
+  const PD_CAP = 15;
+
+  // ── Flags
+  const anomalies = active.filter(i => i.demandFlag).sort((a, b) => Math.abs(1 - b.demandFlag.ratio) - Math.abs(1 - a.demandFlag.ratio));
+  const ANOM_CAP = 15;
+  const onHold   = active.filter(i => i.isOnHold);
+  const overTop  = over.slice().sort((a, b) => b.value - a.value);
+  const OVER_CAP = 10;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const source = document.getElementById('hdr-file').textContent || 'ERP export';
+
+  const th = (...cols) => '<tr>' + cols.map(c => `<th${c[1] ? ` class="r"` : ''}>${c[0]}</th>`).join('') + '</tr>';
+
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>EOD Report — ${esc(now.toLocaleDateString())}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Montserrat',sans-serif;background:#fff;color:#333F48;padding:40px;font-size:12px}
+  h1{font-size:20px;font-weight:700;margin-bottom:4px}
+  h2{font-size:13px;font-weight:700;margin:28px 0 8px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #333F48;padding-bottom:4px}
+  .sub{font-size:11px;color:#6b7780;margin-bottom:20px}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:8px}
+  .kpi{border:1px solid #D9D9D6;border-radius:8px;padding:10px;text-align:center}
+  .kpi-v{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700}
+  .kpi-l{font-size:9px;color:#6b7780;text-transform:uppercase;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px}
+  th{text-align:left;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;color:#6b7780;padding:4px 8px;border-bottom:1px solid #D9D9D6;letter-spacing:.5px}
+  td{padding:4px 8px;border-bottom:1px solid #eee;vertical-align:top}
+  th.r,td.r{text-align:right;font-family:'JetBrains Mono',monospace}
+  .supp-row td{background:#f4f6f7;font-weight:700;border-top:1px solid #D9D9D6}
+  .total-row td{font-weight:700;border-top:2px solid #333F48;font-family:'JetBrains Mono',monospace}
+  .danger{color:#C62828}.ok{color:#2E7D32}.warn{color:#F57C00}.over{color:#7B1FA2}.accent{color:#00A3E1}
+  .more{font-size:10px;color:#6b7780;font-style:italic;margin-bottom:8px}
+  .empty{font-size:11px;color:#6b7780;font-style:italic;padding:6px 0}
+  @media print{body{padding:16px} .no-print{display:none} h2{page-break-after:avoid} tr{page-break-inside:avoid}}
+</style></head><body>
+<h1>Supply Plan — End of Day Report</h1>
+<div class="sub">${esc(dateStr)} · ${esc(timeStr)} &nbsp;·&nbsp; Data: ${esc(source)}</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="kpi-v">${fmt(active.length)}</div><div class="kpi-l">Items</div></div>
+  <div class="kpi"><div class="kpi-v danger">${fmt(below.length)}</div><div class="kpi-l">Below SS</div></div>
+  <div class="kpi"><div class="kpi-v ok">${fmt(active.length - below.length - over.length)}</div><div class="kpi-l">OK</div></div>
+  <div class="kpi"><div class="kpi-v over">${fmt(over.length)}</div><div class="kpi-l">Overstock</div></div>
+  <div class="kpi"><div class="kpi-v">${usd(invVal)}</div><div class="kpi-l">Inv Value</div></div>
+  <div class="kpi"><div class="kpi-v">${usd(poVal)}</div><div class="kpi-l">Open PO $</div></div>
+  <div class="kpi"><div class="kpi-v ${turns >= 3 ? 'ok' : turns >= 2 ? 'warn' : 'danger'}">${turns.toFixed(1)}</div><div class="kpi-l">Turns / Yr</div></div>
+</div>`;
+
+  // POs to place
+  html += `<h2>POs to Place — ${esc(MONTHS[0])} / ${esc(MONTHS[1])} <span class="accent" style="float:right">${usd(poTotal)} est.</span></h2>`;
+  if (!poLines.length) {
+    html += `<div class="empty">No suggested POs for the next two months. ✓</div>`;
+  } else {
+    html += `<table>` + th(['Item'], ['Description'], [`Qty ${esc(MONTHS[0])}`, 1], [`Qty ${esc(MONTHS[1])}`, 1], ['Unit $', 1], ['Est. $', 1]);
+    suppOrder.forEach(supp => {
+      const lines = bySupp[supp].sort((a, b) => b.val - a.val);
+      const suppVal = lines.reduce((s, l) => s + l.val, 0);
+      html += `<tr class="supp-row"><td colspan="5">${esc(supp)}</td><td class="r">${usd(suppVal)}</td></tr>`;
+      lines.forEach(l => {
+        html += `<tr><td class="mono">${esc(l.it.itemId)}</td><td>${esc(l.it.desc)}</td>
+          <td class="r">${l.q0 ? fmt(l.q0) : '—'}${l.q0 && l.it.moqAdjusted[0] ? ' <span class="warn" title="MOQ adjusted">*</span>' : ''}</td>
+          <td class="r">${l.q1 ? fmt(l.q1) : '—'}${l.q1 && l.it.moqAdjusted[1] ? ' <span class="warn" title="MOQ adjusted">*</span>' : ''}</td>
+          <td class="r">${est$(l.it) ? '$' + est$(l.it).toFixed(2) : '—'}</td><td class="r">${usd(l.val)}</td></tr>`;
+      });
+    });
+    html += `<tr class="total-row"><td colspan="5">Total (${fmt(poLines.length)} items, ${fmt(suppOrder.length)} suppliers)</td><td class="r">${usd(poTotal)}</td></tr></table>
+    <div class="more">* qty rounded up to MOQ</div>`;
+  }
+
+  // Critical items
+  html += `<h2>Critical — Below Safety Stock <span class="danger" style="float:right">${fmt(critical.length)} items</span></h2>`;
+  if (!critical.length) {
+    html += `<div class="empty">No items below safety stock in the next 3 months. ✓</div>`;
+  } else {
+    html += `<table>` + th(['Item'], ['Description'], ['Supplier'], ['First short', 1], ['On Hand', 1], ['MAU', 1], ['MOH', 1], ['Sugg. qty', 1]);
+    critical.slice(0, CRIT_CAP).forEach(({ it, firstMo }) => {
+      const suggTotal = it.suggested.slice(0, 3).reduce((s, q) => s + q, 0);
+      html += `<tr><td class="mono">${esc(it.itemId)}</td><td>${esc(it.desc)}</td><td>${esc(it.suppName)}</td>
+        <td class="r danger">${esc(MONTHS[firstMo])}</td><td class="r">${fmt(it.onHand)}</td><td class="r">${fmt(it.mau)}</td>
+        <td class="r">${it.moh !== null ? it.moh.toFixed(1) : '—'}</td><td class="r">${suggTotal ? fmt(suggTotal) : '—'}</td></tr>`;
+    });
+    html += `</table>`;
+    if (critical.length > CRIT_CAP) html += `<div class="more">…and ${fmt(critical.length - CRIT_CAP)} more — see Supply Plan tab filtered to Below SS.</div>`;
+  }
+
+  // Past-due POs
+  html += `<h2>Past-Due Open POs <span class="warn" style="float:right">${fmt(pastDue.length)} items · ${usd(pastDueVal)}</span></h2>`;
+  if (!pastDue.length) {
+    html += `<div class="empty">No past-due open POs. ✓</div>`;
+  } else {
+    html += `<table>` + th(['Item'], ['Description'], ['Supplier'], ['Past-due qty', 1], ['Past-due $', 1]);
+    pastDue.slice(0, PD_CAP).forEach(it => {
+      html += `<tr><td class="mono">${esc(it.itemId)}</td><td>${esc(it.desc)}</td><td>${esc(it.suppName)}</td>
+        <td class="r">${fmt(it.pastDuePO)}</td><td class="r">${usd(it['pastDuePO$'])}</td></tr>`;
+    });
+    html += `</table>`;
+    if (pastDue.length > PD_CAP) html += `<div class="more">…and ${fmt(pastDue.length - PD_CAP)} more items with past-due POs.</div>`;
+  }
+
+  // Demand anomalies
+  html += `<h2>Demand Anomalies <span style="float:right;color:#6b7780">${fmt(anomalies.length)} items</span></h2>`;
+  if (!anomalies.length) {
+    html += `<div class="empty">Projected usage in line with historical average. ✓</div>`;
+  } else {
+    html += `<table>` + th(['Item'], ['Description'], ['Hist. MAU', 1], ['Proj. MAU', 1], ['Change', 1]);
+    anomalies.slice(0, ANOM_CAP).forEach(it => {
+      html += `<tr><td class="mono">${esc(it.itemId)}</td><td>${esc(it.desc)}</td>
+        <td class="r">${fmt(it.rawMau)}</td><td class="r">${fmt(it.projMau)}</td>
+        <td class="r ${it.demandFlag.type === 'spike' ? 'warn' : 'accent'}">${esc(it.demandFlag.label)}</td></tr>`;
+    });
+    html += `</table>`;
+    if (anomalies.length > ANOM_CAP) html += `<div class="more">…and ${fmt(anomalies.length - ANOM_CAP)} more flagged items.</div>`;
+  }
+
+  // Watch flags
+  html += `<h2>Watch</h2>
+  <table>` + th(['Flag'], ['Items', 1], ['Detail']) + `
+    <tr><td>🚫 On hold (excess MOH — PO suggestions blocked)</td><td class="r">${fmt(onHold.length)}</td>
+      <td>${esc(onHold.slice(0, 8).map(i => i.itemId).join(', '))}${onHold.length > 8 ? ` +${onHold.length - 8} more` : ''}</td></tr>
+    <tr><td>🟣 Overstock (top by value)</td><td class="r">${fmt(over.length)}</td>
+      <td>${overTop.slice(0, OVER_CAP).map(i => `${esc(i.itemId)} (${usd(i.value)})`).join(', ')}${over.length > OVER_CAP ? ` +${over.length - OVER_CAP} more` : ''}</td></tr>
+  </table>`;
+
+  html += `<div class="no-print" style="text-align:center;margin-top:24px"><button onclick="window.print()" style="padding:8px 24px;border:1px solid #D9D9D6;border-radius:6px;background:#fff;cursor:pointer;font-family:inherit">Print / Save PDF</button></div>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
 }
 
 // ─────────────────────────────────────────────
