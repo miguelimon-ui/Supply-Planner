@@ -827,11 +827,11 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
   </div>
 
   <!-- EOL IMPACT ANALYSIS MODAL -->
-  <div id="eol-impact-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:stretch;justify-content:center;padding:20px">
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;width:100%;max-width:1600px;display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:14px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:linear-gradient(90deg,rgba(232,121,249,.08),transparent)">
+  <div id="eol-impact-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:stretch;justify-content:center;padding:16px">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:linear-gradient(90deg,rgba(232,121,249,.08),transparent);flex-shrink:0">
         <span style="font-size:20px">🔬</span>
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:15px">EOL Impact Analysis</div>
           <div style="font-size:11px;color:var(--muted)">Watchlist: <span id="eoli-wl-name" style="color:var(--accent);font-family:var(--mono)"></span> · <span id="eoli-status" style="color:var(--muted)"></span></div>
         </div>
@@ -839,20 +839,48 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <span style="cursor:pointer;font-size:20px;color:var(--muted);padding:0 6px" onclick="closeEolImpactModal()" title="Close">✕</span>
       </div>
       <!-- Top summary strip -->
-      <div id="eoli-summary" style="padding:12px 22px;border-bottom:1px solid var(--border);background:var(--bg2);display:grid;grid-template-columns:repeat(6,1fr);gap:16px"></div>
+      <div id="eoli-summary" style="padding:12px 22px;border-bottom:1px solid var(--border);background:var(--bg2);display:grid;grid-template-columns:repeat(6,1fr);gap:16px;flex-shrink:0"></div>
       <!-- Table -->
-      <div style="flex:1;overflow:auto" id="eoli-body-wrap">
-        <table style="border-collapse:collapse;font-size:11.5px;width:100%">
-          <thead id="eoli-thead" style="position:sticky;top:0;background:var(--bg2);z-index:1"></thead>
+      <div style="flex:1;overflow:auto;min-height:0" id="eoli-body-wrap">
+        <table id="eoli-table" style="border-collapse:collapse;font-size:11.5px;white-space:nowrap">
+          <thead id="eoli-thead" style="position:sticky;top:0;background:var(--bg2);z-index:2"></thead>
           <tbody id="eoli-body"></tbody>
         </table>
       </div>
-      <div style="padding:10px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
-        <span>Rules: Excess = OH_at_EOL − (new_MAU × 6mo). Obsolete when new_MAU = 0.</span>
+      <div style="padding:10px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);flex-shrink:0">
+        <span>Rules: Excess = OH_at_EOL − (new_MAU × 6mo). Obsolete when new_MAU = 0. First 2 columns are sticky — scroll horizontally to see all metrics.</span>
         <span id="eoli-row-count"></span>
       </div>
     </div>
   </div>
+  <style>
+    /* EOL Impact table: sticky first 2 columns so Item + Description stay visible on horizontal scroll */
+    #eoli-table th, #eoli-table td { padding:5px 10px; }
+    #eoli-table thead th { border-bottom:1px solid var(--border); background:var(--bg2); }
+    #eoli-table thead th:nth-child(1),
+    #eoli-table tbody td:nth-child(1) {
+      position:sticky; left:0; z-index:1;
+      background:var(--bg); min-width:130px;
+      border-right:1px solid var(--rule-soft);
+    }
+    #eoli-table thead th:nth-child(1) { background:var(--bg2); z-index:3; }
+    #eoli-table thead th:nth-child(2),
+    #eoli-table tbody td:nth-child(2) {
+      position:sticky; left:130px; z-index:1;
+      background:var(--bg); min-width:200px; max-width:220px;
+      overflow:hidden; text-overflow:ellipsis;
+      border-right:1px solid var(--rule-soft);
+    }
+    #eoli-table thead th:nth-child(2) { background:var(--bg2); z-index:3; }
+    /* highlight sticky-column background for shaded rows */
+    #eoli-table tbody tr[data-shade="obsolete"] td:nth-child(1),
+    #eoli-table tbody tr[data-shade="obsolete"] td:nth-child(2) { background:rgba(248,113,113,.06); }
+    #eoli-table tbody tr[data-shade="excess"] td:nth-child(1),
+    #eoli-table tbody tr[data-shade="excess"] td:nth-child(2) { background:rgba(251,191,36,.04); }
+    #eoli-table tbody tr:hover td { background:rgba(148,163,184,.06); }
+    #eoli-table tbody tr[data-shade="obsolete"]:hover td:nth-child(1),
+    #eoli-table tbody tr[data-shade="obsolete"]:hover td:nth-child(2) { background:rgba(248,113,113,.10); }
+  </style>
 
   <!-- WATCHLIST BULK ADD MODAL -->
   <div id="wl-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
@@ -6603,29 +6631,29 @@ function renderEolImpact() {
     <div class="stat"><div class="stat-v" style="color:var(--danger)">${usdFmt(wlSummary.totalObsoleteValue)}</div><div class="stat-l">Potential obsolete</div></div>
   `;
 
-  // Table thead
-  const th = (t, style='') => `<th class="is-th" style="${style}">${t}</th>`;
+  // Table thead — min-widths ensure horizontal scroll instead of column crush.
+  const th = (t, extraStyle='', title='') => `<th class="is-th" style="text-align:left;padding:6px 10px;${extraStyle}" ${title ? `title="${title}"` : ''}>${t}</th>`;
   document.getElementById('eoli-thead').innerHTML = `<tr>
     ${th('Item')}
     ${th('Description')}
-    ${th('Supplier')}
-    ${th('Class')}
-    ${th('Used in (other active)')}
-    ${th('OH','text-align:right')}
-    ${th('Open PO','text-align:right')}
-    ${th('Unit $','text-align:right')}
-    ${th('Curr MAU','text-align:right')}
-    ${th('EOL MAU','text-align:right','title="Contribution from watchlist FGs"')}
-    ${th('New MAU','text-align:right')}
-    ${th('Red %','text-align:right')}
-    ${th('OH @ EOL','text-align:right')}
-    ${th('MOH after','text-align:right')}
-    ${th('Depletion','text-align:right')}
-    ${th('Excess Q','text-align:right')}
-    ${th('Rem $','text-align:right')}
-    ${th('Excess $','text-align:right')}
-    ${th('Obsol $','text-align:right')}
-    ${th('Recommendation')}
+    ${th('Supplier','min-width:120px')}
+    ${th('Class','min-width:100px')}
+    ${th('Used in (other active)','min-width:180px','Other active parents that use this component — comma-separated. Hover the cell to see full list.')}
+    ${th('OH','text-align:right;min-width:60px')}
+    ${th('Open PO','text-align:right;min-width:70px')}
+    ${th('Unit $','text-align:right;min-width:70px')}
+    ${th('Curr MAU','text-align:right;min-width:75px','Monthly Average Usage today (from MRP)')}
+    ${th('EOL MAU','text-align:right;min-width:75px','Contribution to this component from FGs in the watchlist (their MAU × qty per parent, summed)')}
+    ${th('New MAU','text-align:right;min-width:75px','Current MAU − EOL MAU (floored at 0)')}
+    ${th('Red %','text-align:right;min-width:55px','Reduction: EOL / Current')}
+    ${th('OH @ EOL','text-align:right;min-width:80px','Projected on-hand when the discontinuation takes effect')}
+    ${th('MOH after','text-align:right;min-width:75px','Months of stock post-EOL (OH@EOL / new MAU)')}
+    ${th('Depletion','text-align:right;min-width:95px','Estimated date the remaining stock runs out')}
+    ${th('Excess Q','text-align:right;min-width:75px','max(0, OH@EOL − new_MAU × 6)')}
+    ${th('Rem $','text-align:right;min-width:80px','Remaining inventory value at EOL')}
+    ${th('Excess $','text-align:right;min-width:80px','Excess qty × unit cost')}
+    ${th('Obsol $','text-align:right;min-width:80px','When new MAU = 0, entire remaining value is flagged as potentially obsolete')}
+    ${th('Recommendation','min-width:220px')}
   </tr>`;
 
   if (!rows.length) {
@@ -6642,29 +6670,30 @@ function renderEolImpact() {
     : '<span style="color:var(--muted)">—</span>';
 
   document.getElementById('eoli-body').innerHTML = rows.map(r => {
-    const rowStyle = r.willObsolete ? 'background:rgba(248,113,113,.05)'
-                    : r.excessQty > 0 ? 'background:rgba(251,191,36,.03)' : '';
-    return `<tr style="${rowStyle};border-bottom:1px solid var(--rule-soft)">
-      <td style="padding:5px 8px;font-family:var(--mono);font-size:11px">${formatSkuHtml(r.compSku)}</td>
-      <td style="padding:5px 8px;font-size:11px;max-width:180px">${esc(r.desc||'')}</td>
-      <td style="padding:5px 8px;font-size:11px;color:var(--muted)">${esc(r.suppName||'')}</td>
-      <td style="padding:5px 8px">${badge(r.classification)}</td>
-      <td style="padding:5px 8px;font-size:10px;color:var(--muted);max-width:150px" title="${esc(r.otherActiveParents.join(', '))}">${r.otherActiveParents.length ? r.otherActiveParents.slice(0,3).map(p => esc(p)).join(', ') + (r.otherActiveParents.length>3?` +${r.otherActiveParents.length-3}`:'') : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.onHand)}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.openPO)}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${r.unitCost > 0 ? '$'+r.unitCost.toFixed(2) : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${r.currentMau > 0 ? r.currentMau.toFixed(1) : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:var(--warn)">${r.discontinuedMau > 0 ? r.discontinuedMau.toFixed(1) : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-weight:600">${r.newMau > 0 ? r.newMau.toFixed(1) : '<span style="color:var(--danger)">0</span>'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.reductionPct >= 50 ? 'var(--danger)' : r.reductionPct >= 20 ? 'var(--warn)' : 'var(--muted)'}">${r.reductionPct > 0 ? r.reductionPct.toFixed(0)+'%' : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.ohAtEol)}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.willObsolete ? 'var(--danger)' : r.mohAfter !== null && r.mohAfter > 12 ? 'var(--overst)' : ''}">${r.willObsolete ? '⚠ obsolete' : (r.mohAfter !== null ? r.mohAfter.toFixed(1) : '∞')}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:10px;color:var(--muted)">${r.depletionDate || '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.excessQty > 0 ? 'var(--overst)' : ''}">${r.excessQty > 0 ? fmt(r.excessQty) : '—'}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.remainingValue, 'var(--text)')}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.excessValue, 'var(--overst)')}</td>
-      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.obsoleteValue, 'var(--danger)')}</td>
-      <td style="padding:5px 8px;font-size:11px;font-weight:600;color:${r.willObsolete ? 'var(--danger)' : r.recommendation.includes('Continuar') ? 'var(--ok)' : 'var(--warn)'}">${esc(r.recommendation)}</td>
+    const shade = r.willObsolete ? 'obsolete' : r.excessQty > 0 ? 'excess' : '';
+    const rowBg = shade === 'obsolete' ? 'background:rgba(248,113,113,.05)'
+                 : shade === 'excess'  ? 'background:rgba(251,191,36,.03)' : '';
+    return `<tr data-shade="${shade}" style="${rowBg};border-bottom:1px solid var(--rule-soft)">
+      <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(r.compSku)}</td>
+      <td style="font-size:11px" title="${esc(r.desc||'')}">${esc(r.desc||'')}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(r.suppName||'')}</td>
+      <td>${badge(r.classification)}</td>
+      <td style="font-size:10px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.otherActiveParents.join(', '))}">${r.otherActiveParents.length ? r.otherActiveParents.slice(0,3).map(p => esc(p)).join(', ') + (r.otherActiveParents.length>3?` +${r.otherActiveParents.length-3}`:'') : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(r.onHand)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(r.openPO)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${r.unitCost > 0 ? '$'+r.unitCost.toFixed(2) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono)">${r.currentMau > 0 ? r.currentMau.toFixed(1) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--warn)">${r.discontinuedMau > 0 ? r.discontinuedMau.toFixed(1) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600">${r.newMau > 0 ? r.newMau.toFixed(1) : '<span style="color:var(--danger)">0</span>'}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${r.reductionPct >= 50 ? 'var(--danger)' : r.reductionPct >= 20 ? 'var(--warn)' : 'var(--muted)'}">${r.reductionPct > 0 ? r.reductionPct.toFixed(0)+'%' : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmt(r.ohAtEol)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${r.willObsolete ? 'var(--danger)' : r.mohAfter !== null && r.mohAfter > 12 ? 'var(--overst)' : ''}">${r.willObsolete ? '⚠ obsolete' : (r.mohAfter !== null ? r.mohAfter.toFixed(1) : '∞')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:10px;color:var(--muted)">${r.depletionDate || '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${r.excessQty > 0 ? 'var(--overst)' : ''}">${r.excessQty > 0 ? fmt(r.excessQty) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono)">${usdCell(r.remainingValue, 'var(--text)')}</td>
+      <td style="text-align:right;font-family:var(--mono)">${usdCell(r.excessValue, 'var(--overst)')}</td>
+      <td style="text-align:right;font-family:var(--mono)">${usdCell(r.obsoleteValue, 'var(--danger)')}</td>
+      <td style="font-size:11px;font-weight:600;color:${r.willObsolete ? 'var(--danger)' : r.recommendation.includes('Continuar') ? 'var(--ok)' : 'var(--warn)'};min-width:200px">${esc(r.recommendation)}</td>
     </tr>`;
   }).join('');
 
