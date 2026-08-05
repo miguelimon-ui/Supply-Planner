@@ -1913,7 +1913,7 @@ function renderTable() {
           ? `<span title="Past-due PO: ${fmt(item.pastDuePO)} ${item.uom}" style="cursor:help;margin-left:4px;font-size:10px;color:var(--muted)">↦${fmt(item.pastDuePO)}</span>`
           : ''}
       </td>
-      <td class="td-mono" style="font-size:11px;color:${isColor};font-weight:${isColor !== 'var(--text)' ? '600' : 'normal'}">${esc(item.itemId)}</td>
+      <td class="td-mono" style="font-size:11px;color:${isColor};font-weight:${isColor !== 'var(--text)' ? '600' : 'normal'}">${formatSkuHtml(item.itemId, `color:${isColor}`)}</td>
       <td class="td-desc" style="color:${isColor}">${esc(item.desc)}</td>
       <td style="max-width:130px;white-space:normal;font-size:11px;color:var(--muted)">${esc(item.suppName)}</td>
       <td class="td-r td-mono">${fmt(item.onHand)}</td>
@@ -2368,7 +2368,7 @@ function renderPOView() {
       .map(item => {
         const rowStatus = { 'BELOW': 'b-danger', 'OK': 'b-ok', 'OVERSTOCK': 'b-over', 'no-usage': 'b-muted' }[item.status];
         return `<tr>
-          <td style="font-family:var(--mono);font-size:10px;color:var(--muted)">${esc(item.itemId)}</td>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--muted)">${formatSkuHtml(item.itemId, 'color:var(--muted)')}</td>
           <td style="max-width:180px;white-space:normal;font-size:11px">${esc(item.desc)} <span class="badge ${rowStatus}" style="margin-left:4px">${item.status}</span></td>
           ${item.months.map((m, mi) => {
             const manual = (manualPOs[item.itemId] || {})[mi];
@@ -2600,7 +2600,7 @@ function renderLTItemPanel(supp) {
                          : source === 'supplier' ? `<span style="color:var(--ok)">Supplier default</span>`
                          : `<span style="color:var(--warn)">Fallback 3×</span>`;
           return `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(item.itemId)}</td>
+            <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${formatSkuHtml(item.itemId, 'color:var(--muted)')}</td>
             <td style="padding:7px 10px;max-width:200px;white-space:normal">${esc(item.desc)}</td>
             <td style="padding:7px 10px;text-align:center;font-family:var(--mono)">${item.mau.toFixed(2)}</td>
             <td style="padding:7px 10px;text-align:center">
@@ -2727,7 +2727,7 @@ function renderISView() {
                 : is === 'eol' ? 'background:rgba(232,121,249,.04)'
                 : is === 'to_be_discontinued' ? 'background:rgba(251,191,36,.03)' : '';
     return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
-      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(item.itemId)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${formatSkuHtml(item.itemId, 'color:var(--muted)')}</td>
       <td style="padding:7px 10px;font-size:12px;max-width:240px">${esc(item.desc)}</td>
       <td style="padding:7px 10px;font-size:11px;color:var(--muted)">${esc(item.suppName)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${item.onHand > 0 ? fmt(item.onHand) : '—'}</td>
@@ -2973,7 +2973,7 @@ function renderHealthView() {
       : i.poReview ? '<span style="color:var(--warn);font-size:10px;font-weight:600">⚠ REVIEW PO</span>'
       : '<span style="color:var(--muted);font-size:10px">—</span>';
     html += `<tr>
-      <td style="font-family:var(--mono);font-size:11px">${esc(i.itemId)}</td>
+      <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(i.itemId)}</td>
       <td style="font-size:11px">${esc(i.desc)}</td>
       <td style="font-size:10px;color:var(--muted)">${esc(i.suppName)}</td>
       <td style="text-align:right;font-family:var(--mono)">${fmt(i.onHand)}</td>
@@ -3034,7 +3034,7 @@ function renderHealthView() {
       const risk = mohAfter > holdT * 2 ? 'CRITICAL' : mohAfter > holdT ? 'HIGH' : 'MODERATE';
       const riskColor = risk === 'CRITICAL' ? 'var(--danger)' : risk === 'HIGH' ? 'var(--warn)' : 'var(--muted)';
       html += `<tr>
-        <td style="font-family:var(--mono);font-size:11px">${esc(i.itemId)}</td>
+        <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(i.itemId)}</td>
         <td style="font-size:11px">${esc(i.desc)}</td>
         <td style="font-size:10px;color:var(--muted)">${esc(i.suppName)}</td>
         <td style="text-align:right;font-family:var(--mono)">${i.moh.toFixed(1)}</td>
@@ -3058,7 +3058,24 @@ let bomEditId = null;      // null = new, uuid = editing
 let bomComponents = [];    // temp state for modal
 
 function getMRPItem(sku) {
-  return rawItems.find(i => i.itemId === sku) || null;
+  if (!sku) return null;
+  // Direct match first
+  let hit = rawItems.find(i => i.itemId === sku);
+  if (hit) return hit;
+  // Case-insensitive fallback (Instor and PS sometimes differ on case)
+  const upper = String(sku).toUpperCase();
+  hit = rawItems.find(i => String(i.itemId).toUpperCase() === upper);
+  if (hit) return hit;
+  // Alias fallback: legacy_sku ↔ new sku from Product Library
+  const info = resolveSku(sku);
+  if (info) {
+    const tryKeys = [info.primary, info.alt, info.sku, info.legacy].filter(Boolean).map(k => k.toUpperCase());
+    for (const k of tryKeys) {
+      hit = rawItems.find(i => String(i.itemId).toUpperCase() === k);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }
 
 async function loadBOMsFromSupabase() {
@@ -3155,7 +3172,7 @@ function renderBOMView() {
                    + (isBn && !inHouse ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
       const dim = inHouse ? 'opacity:.5' : '';
       html += `<tr style="${rowBg}">
-        <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}','${esc(bom.id)}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
+        <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}','${esc(bom.id)}')" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
         <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
         <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}${c.hasOverride && c.qtyOHOverride !== null ? `<br><span style="font-size:9px;color:var(--accent)">MRP: ${fmt(mrpOH)}</span>` : ''}</td>
@@ -3275,7 +3292,7 @@ function renderBOMCompTable() {
 
     const dimVal = inHouse ? 'opacity:.5' : '';
     return `<tr style="${rowBg}">
-      <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${bomEditId ? "'"+esc(bomEditId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
+      <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${bomEditId ? "'"+esc(bomEditId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
       <td style="font-size:11px">${esc(c.compName || (mrp ? mrp.desc : ''))}</td>
       <td style="text-align:right"><input type="number" value="${c.qtyPerParent}" min="1" step="1" style="width:50px;text-align:right;font-family:var(--mono);font-size:11px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px" onchange="bomComponents[${idx}].qtyPerParent=+this.value;renderBOMCompTable()"></td>
       <td style="text-align:right">
@@ -4009,7 +4026,7 @@ function renderWhereUsed(item, lines) {
       ? `<input type="checkbox" ${p.isPhantom ? 'checked' : ''} onchange="togglePhantomBOM('${esc(p.bomHeaderId)}','${esc(p.sku)}',this.checked)" title="Toggle phantom flag for ${esc(p.sku)}'s BOM">`
       : '<span style="color:var(--muted);font-size:10px">—</span>';
     return `<tr>
-      <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(p.sku)}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--accent)">${formatSkuHtml(p.sku, 'color:var(--accent)')}</td>
       <td style="font-size:11px">${esc(p.name||'')}</td>
       <td style="text-align:center;font-size:10px;color:var(--muted)">${esc(p.type||'—')}</td>
       <td style="text-align:center;font-size:10px;color:${statusColor};font-weight:600">${esc(p.itemStatus||'—')}</td>
@@ -4068,6 +4085,59 @@ loadBOMsFromSupabase().catch(e => console.warn('Failed to load BOMs:', e));
 // SAFETY STOCK SSOT
 // ─────────────────────────────────────────────
 let safetyStock = {}; // item_id -> {ss_units, source, notes, updated_by, updated_at}
+
+// ── SKU alias resolution ─────────────────────────────────────
+// Product Library items table has both `sku` (new nomenclature, ex. 149-5064)
+// and `legacy_sku` (old descriptive, ex. DRV.6.5.006). About 86 of ~1000 items
+// have them different — that's where lookups break: sp_bom_lines was populated
+// with legacy, but sp_mrp_data now has the new format (or vice versa).
+//
+// skuAlias maps ANY known SKU to its counterpart:
+//   { 'DRV.6.5.006': { primary: 'DRV.6.5.006', alt: '149-5064', ... },
+//     '149-5064':    { primary: 'DRV.6.5.006', alt: '149-5064', ... } }
+// primary = legacy_sku if present, else sku. alt = the other. Same for both keys.
+let skuAlias = {};
+
+async function loadSkuAlias() {
+  const rows = await sbFetch('items?select=sku,legacy_sku&limit=10000');
+  skuAlias = {};
+  (rows || []).forEach(r => {
+    const s = String(r.sku || '').trim();
+    const l = String(r.legacy_sku || '').trim();
+    if (!s && !l) return;
+    const primary = l || s;   // prefer legacy for display
+    const alt     = l && s && l !== s ? s : null;
+    const entry = { primary, alt, sku: s || null, legacy: l || null };
+    if (s) skuAlias[s.toUpperCase()] = entry;
+    if (l) skuAlias[l.toUpperCase()] = entry;
+  });
+}
+
+loadSkuAlias().catch(e => console.warn('Failed to load SKU alias map:', e));
+
+function resolveSku(anySku) {
+  if (!anySku) return null;
+  return skuAlias[String(anySku).trim().toUpperCase()] || null;
+}
+
+// Display helper: 'DRV.6.5.006 (149-5064)' when legacy and new differ,
+// or just 'DRV.6.5.006' when they're the same or only one exists.
+// Returns raw text; caller wraps in HTML as needed.
+function formatSku(sku) {
+  const info = resolveSku(sku);
+  if (!info) return String(sku || '');
+  if (!info.alt) return info.primary;
+  return `${info.primary} (${info.alt})`;
+}
+
+// Same but for HTML rendering — the alt goes in muted grey to distinguish visually.
+function formatSkuHtml(sku, extraStyle) {
+  const info = resolveSku(sku);
+  if (!info) return esc(sku || '');
+  const style = extraStyle || '';
+  if (!info.alt) return `<span style="${style}">${esc(info.primary)}</span>`;
+  return `<span style="${style}">${esc(info.primary)}</span> <span style="color:var(--muted);font-size:.85em;${style}">(${esc(info.alt)})</span>`;
+}
 
 async function loadSafetyStock() {
   const rows = await sbFetch('sp_safety_stock?select=*&limit=10000');
@@ -4221,7 +4291,7 @@ function renderSSView() {
       ? (isBelow ? 'background:rgba(248,113,113,.03)' : '')
       : 'background:rgba(148,163,184,.04)';
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}${i.inMRP ? '' : ';opacity:.88'}">
-      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${esc(i.itemId)}</td>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--muted)">${formatSkuHtml(i.itemId, 'color:var(--muted)')}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:280px">${esc(i.desc || '')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(i.suppName || '')}</td>
       <td style="padding:6px 10px;font-size:11px">${esc(family)}</td>
@@ -4723,7 +4793,7 @@ function renderEOLView() {
                      + (isBn ? ' <span style="color:var(--warn);font-size:9px">BOTTLENECK</span>' : '');
         const dim = excluded ? 'opacity:.5' : '';
         html += `<tr style="${rowBg};${dim}">
-          <td style="font-family:var(--mono);font-size:11px">${esc(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${fg.bomId ? "'"+esc(fg.bomId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
+          <td style="font-family:var(--mono);font-size:11px">${formatSkuHtml(c.compSku)} <span onclick="event.stopPropagation();openWhereUsedModal('${esc(c.compSku)}',${fg.bomId ? "'"+esc(fg.bomId)+"'" : 'null'})" style="cursor:pointer;color:var(--muted);font-size:11px;margin-left:2px" title="Where used? See other BOMs that use this component">🔍</span>${badges}</td>
           <td style="font-size:11px">${esc(c.compName || (c.mrp ? c.mrp.desc : ''))}</td>
           <td style="text-align:right;font-family:var(--mono)">${c.qtyPerParent}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmt(c.qtyOH)}</td>
@@ -5990,7 +6060,7 @@ function renderTrufigTable() {
 
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}">
       <td style="padding:6px 10px">${statusBadge}</td>
-      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${esc(it.itemId)}</td>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
       <td style="padding:6px 10px;text-align:center">${groupBadge}</td>
