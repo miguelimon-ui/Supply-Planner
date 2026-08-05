@@ -4099,21 +4099,42 @@ let safetyStock = {}; // item_id -> {ss_units, source, notes, updated_by, update
 let skuAlias = {};
 
 async function loadSkuAlias() {
-  const rows = await sbFetch('items?select=sku,legacy_sku&limit=10000');
+  // Product Library items table has ~4,300 rows. Supabase caps SELECT at 1000
+  // per request regardless of ?limit — paginate to get them all, otherwise the
+  // alias resolver misses the majority of legacy↔new mappings.
   skuAlias = {};
-  (rows || []).forEach(r => {
-    const s = String(r.sku || '').trim();
-    const l = String(r.legacy_sku || '').trim();
-    if (!s && !l) return;
-    const primary = l || s;   // prefer legacy for display
-    const alt     = l && s && l !== s ? s : null;
-    const entry = { primary, alt, sku: s || null, legacy: l || null };
-    if (s) skuAlias[s.toUpperCase()] = entry;
-    if (l) skuAlias[l.toUpperCase()] = entry;
-  });
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const batch = await sbFetch(`items?select=sku,legacy_sku&order=sku&limit=${PAGE}&offset=${offset}`);
+    if (!batch || !batch.length) break;
+    batch.forEach(r => {
+      const s = String(r.sku || '').trim();
+      const l = String(r.legacy_sku || '').trim();
+      if (!s && !l) return;
+      const primary = l || s;   // prefer legacy for display
+      const alt     = l && s && l !== s ? s : null;
+      const entry = { primary, alt, sku: s || null, legacy: l || null };
+      if (s) skuAlias[s.toUpperCase()] = entry;
+      if (l) skuAlias[l.toUpperCase()] = entry;
+    });
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
 }
 
-loadSkuAlias().catch(e => console.warn('Failed to load SKU alias map:', e));
+loadSkuAlias()
+  .then(() => {
+    // Alias is async, so when it lands after the initial render, force
+    // the visible tabs to refresh so on-hand + display update immediately.
+    try {
+      if (typeof recalcAll === 'function' && rawItems && rawItems.length) recalcAll();
+      if (typeof renderBOMView === 'function') renderBOMView();
+      if (typeof renderEOLView === 'function') renderEOLView();
+      if (typeof recalcTrufig === 'function' && trufigLoaded) recalcTrufig();
+    } catch (e) { console.warn('post-alias re-render failed:', e); }
+  })
+  .catch(e => console.warn('Failed to load SKU alias map:', e));
 
 function resolveSku(anySku) {
   if (!anySku) return null;
