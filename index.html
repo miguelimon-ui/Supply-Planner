@@ -826,6 +826,34 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
     </div>
   </div>
 
+  <!-- EOL IMPACT ANALYSIS MODAL -->
+  <div id="eol-impact-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:stretch;justify-content:center;padding:20px">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;width:100%;max-width:1600px;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;background:linear-gradient(90deg,rgba(232,121,249,.08),transparent)">
+        <span style="font-size:20px">🔬</span>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px">EOL Impact Analysis</div>
+          <div style="font-size:11px;color:var(--muted)">Watchlist: <span id="eoli-wl-name" style="color:var(--accent);font-family:var(--mono)"></span> · <span id="eoli-status" style="color:var(--muted)"></span></div>
+        </div>
+        <button class="btn btn-sm" onclick="exportEolImpactCsv()" title="Download the full table as CSV">⬇ Export CSV</button>
+        <span style="cursor:pointer;font-size:20px;color:var(--muted);padding:0 6px" onclick="closeEolImpactModal()" title="Close">✕</span>
+      </div>
+      <!-- Top summary strip -->
+      <div id="eoli-summary" style="padding:12px 22px;border-bottom:1px solid var(--border);background:var(--bg2);display:grid;grid-template-columns:repeat(6,1fr);gap:16px"></div>
+      <!-- Table -->
+      <div style="flex:1;overflow:auto" id="eoli-body-wrap">
+        <table style="border-collapse:collapse;font-size:11.5px;width:100%">
+          <thead id="eoli-thead" style="position:sticky;top:0;background:var(--bg2);z-index:1"></thead>
+          <tbody id="eoli-body"></tbody>
+        </table>
+      </div>
+      <div style="padding:10px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
+        <span>Rules: Excess = OH_at_EOL − (new_MAU × 6mo). Obsolete when new_MAU = 0.</span>
+        <span id="eoli-row-count"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- WATCHLIST BULK ADD MODAL -->
   <div id="wl-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;width:90%;max-width:720px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
@@ -5377,6 +5405,7 @@ function renderWatchlists(byDate, dates, allItemsList) {
           </select>
           <button class="btn btn-sm" onclick="addToWatchlist(${wIdx})">Add</button>
           <button class="btn btn-sm btn-accent" onclick="openBulkAddModal(${wIdx})" title="Bulk add from BOMs or item list">🗂 Bulk Add</button>
+          <button class="btn btn-sm" onclick="openEolImpactModal(${wIdx})" title="Analyze EOL impact: shared vs exclusive components, projected inventory, excess/obsolete valuation, recommended actions" style="background:rgba(232,121,249,.12);color:#e879f9;border-color:rgba(232,121,249,.35);font-weight:600">🔬 EOL Impact Analysis</button>
           <button class="btn btn-sm" onclick="deleteWatchlist(${wIdx})" style="margin-left:auto;color:var(--danger);font-size:10px">Delete Watchlist</button>
         </div>
         ${chartHtml}
@@ -6265,6 +6294,417 @@ async function applyInstor(rows, fileName) {
   } catch (e) {
     alert('Instor upload failed: ' + (e.message || e));
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EOL IMPACT ANALYSIS  (per-watchlist dashboard for procurement)
+// ═══════════════════════════════════════════════════════════════
+// For each FG in a Watchlist, compute component-level EOL impact:
+//   - Explode BOM (sp_bom_lines first, PL bom_headers/bom_lines as fallback)
+//   - Aggregate contribution to each component's MAU
+//   - Where-used across ALL active parents (from PL) to auto-classify
+//     shared vs exclusive
+//   - Project OH at target_date, then post-EOL months of stock, depletion,
+//     excess (> 6mo of new MAU), obsolete ($ value when new MAU = 0)
+//   - Recommended action per row
+
+let plCache = null;        // { headersById, linesByHeader, linesByChild, itemsById, itemsBySku }
+let plCacheLoading = null; // Promise while loading, prevents duplicate concurrent loads
+let eolImpactState = { wIdx: -1, wl: null, rows: [], summary: null };
+
+async function ensurePlCache() {
+  if (plCache) return plCache;
+  if (plCacheLoading) return plCacheLoading;
+  plCacheLoading = (async () => {
+    const [items, headers, lines] = await Promise.all([
+      paginatedFetch('items?select=id,sku,legacy_sku,description,type,status'),
+      paginatedFetch('bom_headers?select=id,parent_item_id,status,is_phantom&status=eq.approved'),
+      paginatedFetch('bom_lines?select=bom_header_id,child_item_id,quantity,unit'),
+    ]);
+    const itemsById = new Map(), itemsBySku = new Map();
+    items.forEach(r => {
+      itemsById.set(r.id, r);
+      if (r.sku) itemsBySku.set(String(r.sku).trim().toUpperCase(), r);
+      if (r.legacy_sku) itemsBySku.set(String(r.legacy_sku).trim().toUpperCase(), r);
+    });
+    const headersById = new Map();
+    const headersByParentItemId = new Map();
+    headers.forEach(h => {
+      headersById.set(h.id, h);
+      headersByParentItemId.set(h.parent_item_id, h);
+    });
+    const linesByHeader = new Map();
+    const linesByChild  = new Map();
+    lines.forEach(l => {
+      if (!linesByHeader.has(l.bom_header_id)) linesByHeader.set(l.bom_header_id, []);
+      linesByHeader.get(l.bom_header_id).push(l);
+      if (!linesByChild.has(l.child_item_id)) linesByChild.set(l.child_item_id, []);
+      linesByChild.get(l.child_item_id).push(l);
+    });
+    plCache = { itemsById, itemsBySku, headersById, headersByParentItemId, linesByHeader, linesByChild };
+    return plCache;
+  })();
+  try { return await plCacheLoading; } finally { plCacheLoading = null; }
+}
+
+async function paginatedFetch(path) {
+  const out = [];
+  let offset = 0;
+  const PAGE = 1000;
+  const sep = path.includes('?') ? '&' : '?';
+  while (true) {
+    const batch = await sbFetch(`${path}${sep}limit=${PAGE}&offset=${offset}`);
+    if (!batch || !batch.length) break;
+    out.push(...batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return out;
+}
+
+// Resolve any SKU (legacy or new) to the PL item record. Returns null when not found.
+function plItemBySku(sku) {
+  if (!plCache) return null;
+  return plCache.itemsBySku.get(String(sku || '').trim().toUpperCase()) || null;
+}
+
+// Get the FG's direct components. Prefers sp_bom_lines (Miguel's curated BOM with
+// in-house/shared flags), falls back to PL bom_headers/bom_lines when no local BOM.
+function eolGetFgComponents(fgSku) {
+  // 1) sp_boms
+  const spBom = bomList.find(b => String(b.parentSku).trim().toUpperCase() === String(fgSku).trim().toUpperCase());
+  if (spBom && spBom.components.length) {
+    return spBom.components.map(c => ({
+      compSku: c.compSku, qtyPerParent: +c.qtyPerParent || 1,
+      inHouse: !!c.produceInHouse, shared: !!c.sharedComponent,
+      source: 'sp_boms',
+    }));
+  }
+  // 2) PL fallback
+  const item = plItemBySku(fgSku);
+  if (!item) return [];
+  const header = plCache.headersByParentItemId.get(item.id);
+  if (!header) return [];
+  const lines = plCache.linesByHeader.get(header.id) || [];
+  return lines.map(l => {
+    const child = plCache.itemsById.get(l.child_item_id);
+    const csku = child ? (child.legacy_sku || child.sku) : null;
+    return {
+      compSku: csku, qtyPerParent: +l.quantity || 1,
+      inHouse: false, shared: false,
+      source: 'pl',
+    };
+  }).filter(c => c.compSku);
+}
+
+// For a given component SKU, list every APPROVED bom_header (from PL) that
+// contains it as a child. Returns array of { parentSku, parentItemStatus, qty }.
+function eolWhereUsed(compSku) {
+  const item = plItemBySku(compSku);
+  if (!item) return [];
+  const lines = plCache.linesByChild.get(item.id) || [];
+  const out = [];
+  const seen = new Set();
+  lines.forEach(l => {
+    const header = plCache.headersById.get(l.bom_header_id);
+    if (!header) return;
+    const parent = plCache.itemsById.get(header.parent_item_id);
+    if (!parent) return;
+    const psku = parent.legacy_sku || parent.sku;
+    const key = psku + '|' + l.quantity;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ parentSku: psku, parentItemStatus: parent.status, qty: +l.quantity || 0 });
+  });
+  return out;
+}
+
+function eolRecommend({ isShared, reductionPct, newMau, excessQty, openPo, willObsolete }) {
+  if (willObsolete)                             return 'Posible inventario obsoleto';
+  if (excessQty > 0 && openPo > 0)              return 'Cancelar / reprogramar POs abiertos';
+  if (excessQty > 0 && openPo === 0)            return 'Consumir inventario existente';
+  if (reductionPct >= 50 && isShared)           return 'Reducir futuras órdenes';
+  if (isShared && reductionPct < 20)            return 'Continuar comprando';
+  if (!isShared && newMau > 0)                  return 'Revisar inventario de servicio';
+  if (!isShared && newMau === 0)                return 'Posible inventario obsoleto';
+  return 'Revisar';
+}
+
+async function openEolImpactModal(wIdx) {
+  const wl = watchlists[wIdx];
+  if (!wl) return;
+  eolImpactState = { wIdx, wl, rows: [], summary: null };
+  document.getElementById('eoli-wl-name').textContent = wl.name;
+  document.getElementById('eoli-status').textContent = 'Loading Product Library cache…';
+  document.getElementById('eoli-summary').innerHTML = '';
+  document.getElementById('eoli-body').innerHTML = '<tr><td colspan="20" style="text-align:center;padding:40px;color:var(--muted)">Analyzing…</td></tr>';
+  document.getElementById('eoli-thead').innerHTML = '';
+  document.getElementById('eoli-row-count').textContent = '';
+  document.getElementById('eoli-impact-modal') && (document.getElementById('eol-impact-modal').style.display = 'flex');
+  document.getElementById('eol-impact-modal').style.display = 'flex';
+
+  try {
+    await ensurePlCache();
+    document.getElementById('eoli-status').textContent = 'Computing impact…';
+    const analysis = eolComputeWatchlistImpact(wl);
+    eolImpactState.rows = analysis.rows;
+    eolImpactState.summary = analysis.summary;
+    renderEolImpact();
+    document.getElementById('eoli-status').textContent = `${analysis.rows.length} components · ${analysis.summary.uniqueFGs} FG${analysis.summary.uniqueFGs===1?'':'s'} analyzed`;
+  } catch (e) {
+    document.getElementById('eoli-status').textContent = `⚠ Failed: ${e.message || e}`;
+    document.getElementById('eoli-body').innerHTML = `<tr><td colspan="20" style="text-align:center;padding:40px;color:var(--danger)">${esc(e.message||e)}</td></tr>`;
+  }
+}
+
+function closeEolImpactModal() {
+  document.getElementById('eol-impact-modal').style.display = 'none';
+}
+
+function eolComputeWatchlistImpact(wl) {
+  const items = (wl.items || []).map(id => String(id).trim()).filter(Boolean);
+  const excluded = wl.excluded || {};
+  const activeFgs = items.filter(id => !excluded[id]);
+
+  // 1. Walk each FG and gather its direct components, storing per-FG contribution
+  //    contribution = fgMau × qtyPerParent
+  // Uses MRP MAU for the FG. When it's zero we still list the component but the
+  // discontinued_MAU contribution is 0 (no consumption to remove).
+  const componentMap = new Map(); // compSkuKey → row aggregate
+  const perFg = []; // for summary
+  const today = new Date();
+  const targetIso = wl.eol_target_date || null;
+  const targetDate = targetIso ? new Date(targetIso + 'T12:00:00') : null;
+  const monthsUntilEol = targetDate
+    ? Math.max(0, (targetDate - today) / (1000 * 60 * 60 * 24 * 30.4375))
+    : 0;
+
+  activeFgs.forEach(fgSku => {
+    const fgMrp = getMRPItem(fgSku);
+    const fgMau = fgMrp ? (+fgMrp.mau || 0) : 0;
+    const comps = eolGetFgComponents(fgSku);
+    perFg.push({ fgSku, fgMau, componentCount: comps.length });
+    comps.forEach(c => {
+      const key = String(c.compSku).trim().toUpperCase();
+      let row = componentMap.get(key);
+      if (!row) {
+        const mrp = getMRPItem(c.compSku);
+        const info = resolveSku(c.compSku) || {};
+        row = {
+          compSku: c.compSku,
+          legacySku: info.legacy || null,
+          newSku: info.sku || null,
+          desc: mrp ? mrp.desc : '',
+          suppName: mrp ? mrp.suppName : '',
+          onHand: mrp ? mrp.onHand : 0,
+          openPO: mrp ? mrp.openPO : 0,
+          unitCost: mrp ? mrp.stdCost : 0,
+          currentMau: mrp ? (+mrp.mau || 0) : 0,
+          discontinuedMau: 0,
+          fgsInWatchlist: [],
+          fgUsageByFg: {},   // fgSku → contribution
+          inHouseFlag: false, sharedFlag: false,
+        };
+        componentMap.set(key, row);
+      }
+      const contribution = fgMau * c.qtyPerParent;
+      row.discontinuedMau += contribution;
+      row.fgsInWatchlist.push(fgSku);
+      row.fgUsageByFg[fgSku] = (row.fgUsageByFg[fgSku] || 0) + contribution;
+      if (c.inHouse) row.inHouseFlag = true;
+      if (c.shared)  row.sharedFlag  = true;
+    });
+  });
+
+  // 2. Where-used → classify shared vs exclusive
+  const watchlistFgSet = new Set(activeFgs.map(s => String(s).trim().toUpperCase()));
+  const rows = [];
+  componentMap.forEach(row => {
+    const uses = eolWhereUsed(row.compSku);
+    const otherActiveParents = uses.filter(u => {
+      const key = String(u.parentSku).trim().toUpperCase();
+      return u.parentItemStatus === 'active' && !watchlistFgSet.has(key);
+    });
+    row.otherActiveParents = otherActiveParents.map(u => u.parentSku);
+    row.classification = otherActiveParents.length > 0 ? 'shared' : 'exclusive';
+
+    // 3. New MAU = current - discontinued (floor at 0)
+    row.newMau = Math.max(0, row.currentMau - row.discontinuedMau);
+    row.reductionPct = row.currentMau > 0 ? (row.discontinuedMau / row.currentMau) * 100 : 0;
+
+    // 4. Project OH at EOL date: OH_now + openPO − consumption between now and EOL
+    row.ohAtEol = Math.max(0, Math.round(
+      row.onHand + row.openPO - (row.currentMau * monthsUntilEol)
+    ));
+
+    // 5. Post-EOL: months of stock, depletion date, excess vs 6mo target
+    if (row.newMau > 0) {
+      row.mohAfter = row.ohAtEol / row.newMau;
+      row.depletionDate = new Date(today.getTime() + (monthsUntilEol + row.mohAfter) * 30.4375 * 86400000).toISOString().slice(0,10);
+      row.willObsolete = false;
+    } else {
+      row.mohAfter = null;
+      row.depletionDate = null; // never depletes on its own
+      row.willObsolete = row.ohAtEol > 0;
+    }
+    const target6mo = row.newMau * 6;
+    row.excessQty = Math.max(0, row.ohAtEol - target6mo);
+    row.remainingValue = row.ohAtEol * (row.unitCost || 0);
+    row.excessValue    = row.excessQty * (row.unitCost || 0);
+    row.obsoleteValue  = row.willObsolete ? row.remainingValue : 0;
+
+    row.recommendation = eolRecommend({
+      isShared: row.classification === 'shared',
+      reductionPct: row.reductionPct,
+      newMau: row.newMau,
+      excessQty: row.excessQty,
+      openPo: row.openPO,
+      willObsolete: row.willObsolete,
+    });
+
+    rows.push(row);
+  });
+
+  // Sort: obsolete first, then by excess value desc
+  rows.sort((a, b) => {
+    if (a.willObsolete !== b.willObsolete) return a.willObsolete ? -1 : 1;
+    return (b.excessValue || 0) - (a.excessValue || 0);
+  });
+
+  // 6. Summary
+  const summary = {
+    uniqueFGs: activeFgs.length,
+    totalComponents: rows.length,
+    sharedCount: rows.filter(r => r.classification === 'shared').length,
+    exclusiveCount: rows.filter(r => r.classification === 'exclusive').length,
+    totalRemainingValue: rows.reduce((s, r) => s + (r.remainingValue || 0), 0),
+    totalExcessValue: rows.reduce((s, r) => s + (r.excessValue || 0), 0),
+    totalObsoleteValue: rows.reduce((s, r) => s + (r.obsoleteValue || 0), 0),
+    openPosToReview: rows.filter(r => r.openPO > 0 && r.excessQty > 0).length,
+    topExcess: [...rows].sort((a,b) => (b.excessValue||0)-(a.excessValue||0)).slice(0, 3),
+    monthsUntilEol,
+    targetIso,
+  };
+  return { rows, summary };
+}
+
+function renderEolImpact() {
+  const { rows, summary, wl } = eolImpactState;
+  const wlSummary = eolImpactState.summary;
+
+  // Top summary strip
+  const usdFmt = (n) => '$' + Math.round(n).toLocaleString();
+  document.getElementById('eoli-summary').innerHTML = `
+    <div class="stat"><div class="stat-v" style="color:var(--text)">${wlSummary.totalComponents}</div><div class="stat-l">Components</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--accent)">${wlSummary.sharedCount}</div><div class="stat-l">Shared</div></div>
+    <div class="stat"><div class="stat-v" style="color:#e879f9">${wlSummary.exclusiveCount}</div><div class="stat-l">Exclusive</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--warn)">${wlSummary.openPosToReview}</div><div class="stat-l">POs to review</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--overst)">${usdFmt(wlSummary.totalExcessValue)}</div><div class="stat-l">Excess value</div></div>
+    <div class="stat"><div class="stat-v" style="color:var(--danger)">${usdFmt(wlSummary.totalObsoleteValue)}</div><div class="stat-l">Potential obsolete</div></div>
+  `;
+
+  // Table thead
+  const th = (t, style='') => `<th class="is-th" style="${style}">${t}</th>`;
+  document.getElementById('eoli-thead').innerHTML = `<tr>
+    ${th('Item')}
+    ${th('Description')}
+    ${th('Supplier')}
+    ${th('Class')}
+    ${th('Used in (other active)')}
+    ${th('OH','text-align:right')}
+    ${th('Open PO','text-align:right')}
+    ${th('Unit $','text-align:right')}
+    ${th('Curr MAU','text-align:right')}
+    ${th('EOL MAU','text-align:right','title="Contribution from watchlist FGs"')}
+    ${th('New MAU','text-align:right')}
+    ${th('Red %','text-align:right')}
+    ${th('OH @ EOL','text-align:right')}
+    ${th('MOH after','text-align:right')}
+    ${th('Depletion','text-align:right')}
+    ${th('Excess Q','text-align:right')}
+    ${th('Rem $','text-align:right')}
+    ${th('Excess $','text-align:right')}
+    ${th('Obsol $','text-align:right')}
+    ${th('Recommendation')}
+  </tr>`;
+
+  if (!rows.length) {
+    document.getElementById('eoli-body').innerHTML = `<tr><td colspan="20" style="text-align:center;padding:40px;color:var(--muted)">No component data to analyze. Make sure the watchlist FGs have BOMs (either in sp_boms or in Product Library).</td></tr>`;
+    document.getElementById('eoli-row-count').textContent = '';
+    return;
+  }
+
+  const badge = (cls) => cls === 'shared'
+    ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">🔗 SHARED</span>'
+    : '<span class="badge" style="background:rgba(232,121,249,.12);color:#e879f9">⚠ EXCLUSIVE</span>';
+  const usdCell = (n, color) => n > 0
+    ? `<span style="color:${color}">$${Math.round(n).toLocaleString()}</span>`
+    : '<span style="color:var(--muted)">—</span>';
+
+  document.getElementById('eoli-body').innerHTML = rows.map(r => {
+    const rowStyle = r.willObsolete ? 'background:rgba(248,113,113,.05)'
+                    : r.excessQty > 0 ? 'background:rgba(251,191,36,.03)' : '';
+    return `<tr style="${rowStyle};border-bottom:1px solid var(--rule-soft)">
+      <td style="padding:5px 8px;font-family:var(--mono);font-size:11px">${formatSkuHtml(r.compSku)}</td>
+      <td style="padding:5px 8px;font-size:11px;max-width:180px">${esc(r.desc||'')}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--muted)">${esc(r.suppName||'')}</td>
+      <td style="padding:5px 8px">${badge(r.classification)}</td>
+      <td style="padding:5px 8px;font-size:10px;color:var(--muted);max-width:150px" title="${esc(r.otherActiveParents.join(', '))}">${r.otherActiveParents.length ? r.otherActiveParents.slice(0,3).map(p => esc(p)).join(', ') + (r.otherActiveParents.length>3?` +${r.otherActiveParents.length-3}`:'') : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.onHand)}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.openPO)}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${r.unitCost > 0 ? '$'+r.unitCost.toFixed(2) : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${r.currentMau > 0 ? r.currentMau.toFixed(1) : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:var(--warn)">${r.discontinuedMau > 0 ? r.discontinuedMau.toFixed(1) : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-weight:600">${r.newMau > 0 ? r.newMau.toFixed(1) : '<span style="color:var(--danger)">0</span>'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.reductionPct >= 50 ? 'var(--danger)' : r.reductionPct >= 20 ? 'var(--warn)' : 'var(--muted)'}">${r.reductionPct > 0 ? r.reductionPct.toFixed(0)+'%' : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${fmt(r.ohAtEol)}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.willObsolete ? 'var(--danger)' : r.mohAfter !== null && r.mohAfter > 12 ? 'var(--overst)' : ''}">${r.willObsolete ? '⚠ obsolete' : (r.mohAfter !== null ? r.mohAfter.toFixed(1) : '∞')}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:10px;color:var(--muted)">${r.depletionDate || '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);color:${r.excessQty > 0 ? 'var(--overst)' : ''}">${r.excessQty > 0 ? fmt(r.excessQty) : '—'}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.remainingValue, 'var(--text)')}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.excessValue, 'var(--overst)')}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono)">${usdCell(r.obsoleteValue, 'var(--danger)')}</td>
+      <td style="padding:5px 8px;font-size:11px;font-weight:600;color:${r.willObsolete ? 'var(--danger)' : r.recommendation.includes('Continuar') ? 'var(--ok)' : 'var(--warn)'}">${esc(r.recommendation)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('eoli-row-count').textContent = `${rows.length} component${rows.length===1?'':'s'}`;
+}
+
+function exportEolImpactCsv() {
+  const { rows, wl } = eolImpactState;
+  if (!rows.length) { alert('Nothing to export.'); return; }
+  const headers = [
+    'Item ID','Legacy SKU','New SKU','Description','Supplier','Classification',
+    'Used in (other active)','On Hand','Open PO','Unit Cost',
+    'Current MAU','Discontinued MAU','New MAU','Reduction %',
+    'OH at EOL','MOH after','Depletion date','Excess Qty',
+    'Remaining Value','Excess Value','Obsolete Value','Recommendation'
+  ];
+  const escape = (s) => {
+    const str = String(s == null ? '' : s);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g,'""')}"` : str;
+  };
+  const lines = [headers.join(',')];
+  rows.forEach(r => {
+    lines.push([
+      r.compSku, r.legacySku || '', r.newSku || '',
+      r.desc, r.suppName, r.classification,
+      r.otherActiveParents.join(' | '),
+      r.onHand, r.openPO, r.unitCost,
+      r.currentMau.toFixed(2), r.discontinuedMau.toFixed(2), r.newMau.toFixed(2), r.reductionPct.toFixed(1),
+      r.ohAtEol, r.mohAfter === null ? (r.willObsolete ? 'OBSOLETE' : 'INF') : r.mohAfter.toFixed(2),
+      r.depletionDate || '', r.excessQty,
+      r.remainingValue.toFixed(2), r.excessValue.toFixed(2), r.obsoleteValue.toFixed(2),
+      r.recommendation,
+    ].map(escape).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const safeName = String(wl.name || 'watchlist').replace(/[^a-z0-9_-]/gi, '_');
+  a.download = `eol_impact_${safeName}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
 }
 </script>
 </body>
