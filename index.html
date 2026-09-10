@@ -1572,6 +1572,13 @@ async function __latestUploadedAt() {
   } catch (_) { return null; }
 }
 
+async function __latestTrufigUploadedAt() {
+  try {
+    const r = await sbFetch('sp_mrp_trufig?select=uploaded_at&order=uploaded_at.desc&limit=1');
+    return (r && r[0] && r[0].uploaded_at) || null;
+  } catch (_) { return null; }
+}
+
 // The user is "busy" (don't yank their work) if they're typing in a field, or the
 // Calculator has build quantities entered, or a modal/dialog is open. Saved edits
 // (safety stock, suppliers, status) persist to Supabase on change, so they're never at risk.
@@ -1625,15 +1632,27 @@ async function refreshData(silent) {
       if (typeof loadSafetyStock  === 'function') { try { await loadSafetyStock();  } catch (_) {} }
       if (typeof recalcAll === 'function')        { try { recalcAll();               } catch (_) {} }
     }
+    // Trufig/Instor overlay (daemon feeds sp_mrp_trufig every 12h) — reload it too if the view was opened.
+    if (window.__trufigUploadedAt != null && typeof loadTrufigView === 'function') {
+      try { await loadTrufigView(true); if (typeof recalcTrufig === 'function') recalcTrufig(); } catch (_) {}
+    }
     __restoreUiState(ui);
   } catch (e) { console.warn('refreshData failed', e); }
   __freshBusy = false;
 }
 
 async function __checkFresh(fromReturn) {
-  if (!window.__mrpUploadedAt || __freshBusy) return;
-  const latest = await __latestUploadedAt();
-  if (!latest || String(latest) === String(window.__mrpUploadedAt)) return;
+  if (__freshBusy) return;
+  let stale = false;
+  if (window.__mrpUploadedAt) {
+    const m = await __latestUploadedAt();
+    if (m && String(m) !== String(window.__mrpUploadedAt)) stale = true;
+  }
+  if (!stale && window.__trufigUploadedAt) {   // Instor overlay signal (Trufig view)
+    const t = await __latestTrufigUploadedAt();
+    if (t && String(t) !== String(window.__trufigUploadedAt)) stale = true;
+  }
+  if (!stale) return;
   // Silent reload ONLY when it's safe: they just returned to the tab AND aren't mid-edit.
   if (fromReturn && !__isBusy()) await refreshData(true);
   else __freshPill(true);   // busy, or actively viewing → just offer it, never clobber their work
@@ -6199,6 +6218,9 @@ async function loadTrufigView(force) {
   const baseArr = (baseRows || []).map(r => ({ ...r, _source: 'main' }));
   const instorArr = (instorRows || []).map(r => ({ ...r, _source: 'instor' }));
   instorItems = instorArr;
+  // Freshness marker for the Instor overlay — the ps-bin-transfer daemon replaces sp_mrp_trufig
+  // every 12h; key off MAX uploaded_at so the poll and this marker match.
+  window.__trufigUploadedAt = instorArr.reduce((m, r) => (r.uploaded_at && (!m || r.uploaded_at > m)) ? r.uploaded_at : m, null);
   // Union: Instor wins over main MRP
   const bySku = {};
   baseArr.forEach(r => { bySku[String(r.item_id).trim().toUpperCase()] = r; });
