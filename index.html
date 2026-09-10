@@ -1009,6 +1009,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <button class="btn btn-sm" onclick="document.getElementById('tf-instor-input').click()" title="Upload the PS Instor query (Trufig inventory) to overlay the main MRP">📥 Upload Instor</button>
         <input type="file" id="tf-instor-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleInstorFile(event)">
         <button class="btn btn-sm" onclick="recalcTrufig()">↺ Recalculate</button>
+        <button class="btn btn-sm" onclick="toggleTrufigHelp()" title="Guía de uso: qué es la herramienta y qué significa cada valor" style="border-color:var(--accent);color:var(--accent)">❓ Cómo usar</button>
       </div>
     </div>
     <div style="background:var(--bg3);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
@@ -1028,6 +1029,62 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <thead id="tf-thead"></thead>
         <tbody id="tf-body"></tbody>
       </table>
+    </div>
+
+    <!-- ── TRUFIG PLAN — GUÍA (para Tania) ─────────────────────────────── -->
+    <div id="tf-help" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);padding:24px;overflow:auto">
+      <div style="max-width:900px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 28px;font-family:Montserrat,system-ui,sans-serif;color:var(--text);line-height:1.5">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:18px;font-weight:600">🔹 Trufig Plan — Guía de uso</span>
+          <button onclick="toggleTrufigHelp()" style="margin-left:auto;border:0;background:var(--bg3);color:var(--text);border-radius:8px;padding:6px 14px;cursor:pointer;font-weight:600">✕ Cerrar</button>
+        </div>
+
+        <div style="background:var(--bg3);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-weight:600;color:var(--accent);margin-bottom:4px">¿Qué es esta herramienta?</div>
+          Es la vista de planeación de Trufig. Por cada SKU te dice, en un solo lugar: <b>cuánto tienes</b>, <b>cuánto consumes al mes</b>, <b>cuánto colchón</b> (safety stock) deberías mantener, y <b>cuánto conviene producir o comprar</b> en los próximos meses — para que ya no tengas que sacar esto a mano ni avisar faltante por faltante.
+          <div style="margin-top:8px">Se planea desde dos ángulos: <b>🎯 Finished Goods</b> (tú, Tania — planeas por producto terminado) y <b>🔧 Components</b> (Carlos — planea por componente).</div>
+        </div>
+
+        <div style="font-weight:600;color:var(--accent);margin-bottom:8px">Cómo usarla — paso a paso</div>
+        <ol style="margin:0 0 18px;padding-left:20px">
+          <li style="margin-bottom:5px">En el selector de vista elige <b>🎯 Finished Goods (Tania)</b> para ver solo tus productos terminados.</li>
+          <li style="margin-bottom:5px">Si solo quieres lo urgente, filtra por estatus <b>🔴 Below SS</b> (lo que está por debajo del colchón).</li>
+          <li style="margin-bottom:5px">Elige el <b>horizonte</b> (3 / 6 / 9 / 12 meses). Eso define cuántos meses suma la columna <b>Suggested</b>.</li>
+          <li style="margin-bottom:5px">Lee la columna <b>Suggested</b>: es cuánto necesitas <b>soltar (PID)</b> u <b>ordenar</b> en ese horizonte.</li>
+          <li style="margin-bottom:5px">Mira las <b>columnas de meses</b> a la derecha para ver <b>en qué mes</b> cae cada necesidad.</li>
+          <li style="margin-bottom:5px">Si subiste un query de inventario nuevo, usa <b>📥 Upload Instor</b> y luego <b>↺ Recalculate</b>.</li>
+        </ol>
+
+        <div style="font-weight:600;color:var(--accent);margin-bottom:8px">Los números de arriba (resumen)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:18px;font-size:13px">
+          <div><b>Items</b> — cuántos SKU se están mostrando.</div>
+          <div><b>Below SS</b> 🔴 — por debajo del colchón (atención).</div>
+          <div><b>OK</b> 🟢 — con inventario sano.</div>
+          <div><b>Overstock</b> 🟣 — de más (mucho colchón).</div>
+          <div><b>MAKE / BUY</b> — cuántos se producen vs se compran.</div>
+          <div><b>Inv Value</b> — valor del inventario mostrado.</div>
+          <div><b>From Instor / Main MRP</b> — de qué reporte salió el dato.</div>
+          <div><b>SS only</b> — tienen colchón definido pero aún no aparecen en el MRP.</div>
+        </div>
+
+        <div style="font-weight:600;color:var(--accent);margin-bottom:8px">Qué significa cada columna</div>
+        <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12.5px">
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px"><div style="font-weight:600">Status</div><div style="color:var(--muted)">🔴 debajo del colchón · 🟢 sano · 🟣 sobre-stock.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px;background:var(--bg3)"><div style="font-weight:600">On Hand</div><div style="color:var(--muted)">Lo que tienes en MNDIN (PeopleSoft). La 2ª línea es el WMS y la Δ marca la diferencia si es grande. “+N in X BU” = stock en otras unidades de negocio.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px"><div style="font-weight:600">Open PO</div><div style="color:var(--muted)">Lo que ya viene en órdenes de compra abiertas.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px;background:var(--bg3)"><div style="font-weight:600">MAU</div><div style="color:var(--muted)">Consumo promedio al mes. Si tiene 📐, se calculó del colchón (SS ÷ meses de cobertura); si no, viene del MRP.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px"><div style="font-weight:600">🧬 Cascade MAU</div><div style="color:var(--muted)">Solo aplica a componentes: la demanda que le “cae” sumando el consumo de todos los FG que lo usan. Pasa el mouse para ver de qué FG viene.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px;background:var(--bg3)"><div style="font-weight:600">Effective SS</div><div style="color:var(--muted)">El colchón objetivo: el mínimo que deberías mantener.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px"><div style="font-weight:600">Type</div><div style="color:var(--muted)">MAKE (se produce) o BUY (se compra). Se edita en el tab TRUFIG SS.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px;background:var(--bg3)"><div style="font-weight:600">Suggested</div><div style="color:var(--muted)">Cuánto soltar (PID) u ordenar en el horizonte elegido. <b>Es tu número de acción.</b></div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px"><div style="font-weight:600">Meses (Sep, Oct…)</div><div style="color:var(--muted)">La necesidad proyectada mes por mes. Los meses del horizonte van resaltados.</div></div>
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 14px;background:var(--bg3)"><div style="font-weight:600">Data Source</div><div style="color:var(--muted)">De dónde salió el dato: Instor, Main MRP o SS.</div></div>
+        </div>
+
+        <div style="margin-top:16px;padding:12px 14px;background:rgba(0,163,225,.08);border:1px solid var(--accent);border-radius:10px;font-size:13px">
+          💡 <b>Tip:</b> arranca en vista <b>Finished Goods</b> + estatus <b>Below SS</b>, y trabaja la columna <b>Suggested</b> de arriba hacia abajo. Eso te da, en orden, lo que hay que soltar u ordenar primero.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -6604,6 +6661,12 @@ function computeCascadeDemand(fgList) {
   });
 
   return acc;
+}
+
+function toggleTrufigHelp() {
+  const el = document.getElementById('tf-help');
+  if (!el) return;
+  el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
 }
 
 function recalcTrufig() {
