@@ -1242,8 +1242,18 @@ async function sbFetch(path, opts = {}) {
     headers: { ...sbHeaders(key), ...(opts.headers || {}), ...(opts.prefer ? { 'Prefer': opts.prefer } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  if (opts.method === 'DELETE' || opts.prefer === 'return=minimal') return res.ok;
-  return res.ok ? res.json() : null;
+  // Effective Prefer can arrive via opts.prefer OR opts.headers.Prefer (upserts
+  // set both return=minimal AND resolution=merge-duplicates through headers).
+  const preferHeader = (opts.prefer || opts.headers?.Prefer || '');
+  const wantsMinimal = preferHeader.includes('return=minimal');
+  // A minimal/DELETE response has an EMPTY body — calling res.json() on it throws
+  // "Unexpected end of JSON input" even though the write succeeded. Return res.ok
+  // instead so a successful write never surfaces a false error.
+  if (opts.method === 'DELETE' || wantsMinimal) return res.ok;
+  if (!res.ok) return null;
+  // Guard the JSON parse against an empty body regardless of Prefer.
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // ─────────────────────────────────────────────
