@@ -991,6 +991,9 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <option value="sub">🧩 Sub-assemblies</option>
         <option value="ungrouped">— No Item Group</option>
       </select>
+      <label style="font-size:12px;color:var(--text);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer" title="Solo el plan: FGs con Safety Stock + los componentes a los que cascadean. Apágalo para ver todo.">
+        <input type="checkbox" id="tf-planonly" checked onchange="renderTrufigTable()"> 🎯 Solo plan
+      </label>
       <select id="tf-status" onchange="renderTrufigTable()">
         <option value="">All Status</option>
         <option value="BELOW">🔴 Below SS</option>
@@ -4694,6 +4697,7 @@ async function loadSafetyStock() {
       ss_months_cover: +r.ss_months_cover || 3,
       updated_by: r.updated_by || '',
       updated_at: r.updated_at || null,
+      in_plan: (typeof r.in_plan === 'boolean') ? r.in_plan : (+r.ss_units > 0),
     };
   });
 }
@@ -4706,6 +4710,37 @@ function getManualSS(itemId) {
 function getMakeOrBuy(itemId) {
   const rec = safetyStock[String(itemId).trim().toUpperCase()];
   return rec ? rec.make_or_buy : 'buy';
+}
+
+// Planning scope: an FG is "in plan" when its toggle is on (default = has SS).
+// Its components enter the plan via the cascade (cascadeMau > 0).
+function isInPlan(itemId) {
+  const rec = safetyStock[String(itemId).trim().toUpperCase()];
+  return !!(rec && rec.in_plan);
+}
+
+// Toggle an FG in/out of the plan. Creates the sp_safety_stock row if needed.
+async function setInPlan(itemId, val) {
+  const key = String(itemId).trim().toUpperCase();
+  const ex = safetyStock[key];
+  const body = ex
+    ? { item_id: itemId, ss_units: ex.ss_units, source: ex.source, notes: ex.notes || null,
+        make_or_buy: ex.make_or_buy, ss_months_cover: ex.ss_months_cover || 3,
+        in_plan: !!val, updated_by: 'sp-ui', updated_at: new Date().toISOString() }
+    : { item_id: itemId, ss_units: 0, source: 'manual', notes: null,
+        make_or_buy: 'buy', ss_months_cover: 3,
+        in_plan: !!val, updated_by: 'sp-ui', updated_at: new Date().toISOString() };
+  try {
+    await sbFetch('sp_safety_stock', {
+      method: 'POST', write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: [body],
+    });
+    safetyStock[key] = { ss_units: body.ss_units, source: body.source, notes: body.notes || '',
+      make_or_buy: body.make_or_buy, ss_months_cover: body.ss_months_cover,
+      updated_by: 'sp-ui', updated_at: body.updated_at, in_plan: !!val };
+    if (typeof recalcTrufig === 'function') recalcTrufig();
+  } catch (e) { alert('Failed to update Plan: ' + (e.message || e)); }
 }
 
 // Derive MAU from manual SS when available (Miguel's rule: SS covers N months of demand).
@@ -6819,7 +6854,7 @@ function recalcTrufig() {
       const g = (r.itemGroup || '').toUpperCase();
       const isFG = g === 'FINISHED_GOODS' || (!g && String(r.itemId).startsWith('5'));
       const info = getEffectiveMAU(r.itemId, +r.mau || 0);
-      return isFG && info.mau > 0;
+      return isFG && info.mau > 0 && isInPlan(r.itemId);
     })
     .map(r => ({ sku: r.itemId, mau: getEffectiveMAU(r.itemId, +r.mau || 0).mau }));
   cascadeDemand = computeCascadeDemand(fgList);
@@ -6889,6 +6924,7 @@ function recalcTrufig() {
       effectiveSSSource: manualSS !== null ? 'manual' : 'formula',
       months, suggested, suggestedTotal, kind, lt,
       cascadeMau, cascadeContributors,
+      inPlan: isInPlan(raw.itemId),
     };
   });
   renderTrufigTable();
@@ -6918,6 +6954,7 @@ function renderTrufigThead() {
     monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${bg};${opa}">${label}</th>`);
   }
   el.innerHTML = `<tr>
+    <th class="is-th" style="text-align:center" title="In plan? Default on for items with Safety Stock. A planned FG cascades to its components; unplanned rows are hidden unless a plan FG uses them.">Plan</th>
     <th class="is-th">Status</th>
     <th class="is-th">Item ID</th>
     <th class="is-th">Description</th>
@@ -6988,7 +7025,7 @@ function renderOnHandCell(it) {
 
 function renderTrufigTable() {
   renderTrufigThead();
-  const COLSPAN = 25; // 12 fixed (added Cascade MAU) + 12 months + 1 source
+  const COLSPAN = 26; // 13 fixed (added Plan + Cascade MAU) + 12 months + 1 source
   if (!rawItemsTrufig.length) {
     document.getElementById('tf-body').innerHTML = `<tr><td colspan="${COLSPAN}" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>`;
     document.getElementById('tf-count').textContent = '';
@@ -7007,9 +7044,12 @@ function renderTrufigTable() {
     if (fView === 'ungrouped') return !g;
     return true;
   };
+  const planOnly = document.getElementById('tf-planonly') ? document.getElementById('tf-planonly').checked : true;
   const list = itemsTrufig.filter(it => {
     if (!viewMatch(it)) return false;
     if (fStatus && it.status !== fStatus) return false;
+    // Plan scope: only planned FGs (SS toggle on) + the components their BOM cascades to.
+    if (planOnly && !(it.inPlan || it.cascadeMau > 0)) return false;
     if (search) {
       const hay = `${it.itemId} ${it.desc||''} ${it.suppName||''}`.toLowerCase();
       if (!hay.includes(search)) return false;
@@ -7047,7 +7087,7 @@ function renderTrufigTable() {
   document.getElementById('tf-count').textContent = `${list.length} of ${total}`;
 
   const horizon = getTrufigHorizon();
-  const COLSPAN_ROW = 25;
+  const COLSPAN_ROW = 26;
   document.getElementById('tf-body').innerHTML = list.map(it => {
     // Only Finished Goods (real ones with itemGroup or prefix 5 fallback) can be expanded
     const isFg = (String(it.itemGroup||'').toUpperCase() === 'FINISHED_GOODS')
@@ -7106,7 +7146,9 @@ function renderTrufigTable() {
       </td>`;
     }).join('');
 
+    const planToggle = `<input type="checkbox" ${it.inPlan ? 'checked' : ''} onclick="event.stopPropagation();setInPlan('${esc(it.itemId).replace(/'/g,"\\'")}', this.checked)" title="Include in plan (a planned FG cascades demand to its components)">`;
     const mainRow = `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+      <td style="padding:6px 10px;text-align:center">${planToggle}</td>
       <td style="padding:6px 10px">${chevron} ${statusBadge}</td>
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent)">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
