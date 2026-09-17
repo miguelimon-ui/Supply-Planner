@@ -1014,6 +1014,7 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
         <button class="btn btn-sm" onclick="document.getElementById('tf-instor-input').click()" title="Upload the PS Instor query (Trufig inventory) to overlay the main MRP">📥 Upload Instor</button>
         <input type="file" id="tf-instor-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleInstorFile(event)">
         <button class="btn btn-sm" onclick="recalcTrufig()">↺ Recalculate</button>
+        <button class="btn btn-sm" onclick="openSubconModal()" title="Configurar items de subcontrato (maquila): se compran a un proveedor pero nosotros surtimos sus componentes" style="border-color:#d97706;color:#d97706">🏭 Subcontrato</button>
         <button class="btn btn-sm" onclick="toggleTrufigHelp()" title="Guía de uso: qué es la herramienta y qué significa cada valor" style="border-color:var(--accent);color:var(--accent)">❓ Cómo usar</button>
       </div>
     </div>
@@ -1130,6 +1131,24 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
           💡 <b>Tip:</b> arranca en vista <b>Finished Goods</b> + estatus <b>Below SS</b>, y trabaja la columna <b>Suggested</b> de arriba hacia abajo. Eso te da, en orden, lo que hay que soltar u ordenar primero.
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- SUBCONTRACT CONFIG MODAL — curate sp_subcontract_items + per-line furnished_by. -->
+  <div id="tf-subcon-modal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);padding:24px;overflow:auto">
+    <div style="max-width:820px;margin:0 auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 28px;font-family:Montserrat,system-ui,sans-serif;color:var(--text);line-height:1.5">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:18px;font-weight:600">🏭 Items de subcontrato (maquila)</span>
+        <button onclick="closeSubconModal()" style="margin-left:auto;border:0;background:var(--bg3);color:var(--text);border-radius:8px;padding:6px 14px;cursor:pointer;font-weight:600">✕ Cerrar</button>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:16px">
+        Un item de subcontrato se <b>compra a un proveedor</b> (aparece como PO para Carlos), pero <b>nosotros surtimos sus componentes</b>. Su PO neta mensual dispara la demanda de esos componentes, neteada contra su propio inventario. Por cada componente marca quién lo surte: <b>nosotros</b> (cascadea como demanda) o el <b>proveedor</b> (no genera demanda tuya).
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <input type="text" id="tf-subcon-add" placeholder="Item ID a marcar como subcontrato (ej. 802-0016)" style="flex:1" onkeydown="if(event.key==='Enter')addSubcontractItem()">
+        <button class="btn btn-sm" onclick="addSubcontractItem()" style="border-color:#d97706;color:#d97706">+ Agregar</button>
+      </div>
+      <div id="tf-subcon-list"></div>
     </div>
   </div>
 
@@ -3504,6 +3523,7 @@ async function loadBOMsFromSupabase() {
       qtyOHOverride: l.qty_oh_override, openPOOverride: l.open_po_override,
       produceInHouse: !!l.produce_in_house,
       sharedComponent: !!l.shared_component,
+      furnishedBy: l.furnished_by || 'us',  // 'us' | 'supplier' — only consulted for subcontract parents
       sortOrder: l.sort_order || 0
     })).sort((a,b) => a.sortOrder - b.sortOrder)
   }));
@@ -4724,6 +4744,10 @@ function getMakeOrBuy(itemId) {
   const rec = safetyStock[key];
   // Explicit MAKE from the TRUFIG SS tab wins (manual override).
   if (rec && rec.make_or_buy === 'make') return 'make';
+  // Subcontract: purchased from a supplier (a BUY / PO for Carlos) even though it has a
+  // BOM. Its components are planned separately via the subcontract netting pass, so it must
+  // NOT be classified as make here. Checked before the BOM rule below.
+  if (isSubcontract(itemId)) return 'buy';
   // Derive (Miguel's rule): phantom (paper structure) or has a real BOM → MAKE (Tania).
   // A purchased leaf (no BOM) → BUY (Carlos). Keeps phantoms out of Carlos's buy list.
   if (isPhantom(itemId) || bomParentSet.has(key)) return 'make';
@@ -4798,6 +4822,21 @@ async function loadPhantoms() {
 }
 function isPhantom(sku) { return phantomSet.has(String(sku).trim().toUpperCase()); }
 loadPhantoms();
+
+// Subcontract (toll / outside-processing) items: BOUGHT from a supplier (their own
+// replenishment is a subcontract PO) but their BOM components are furnished by us, so the
+// item's NET monthly replenishment drives dependent demand for those buyer-furnished
+// components. A THIRD procurement type, distinct from make and buy. Curated registry.
+let subcontractSet = new Set();
+async function loadSubcontract() {
+  try {
+    const rows = await sbFetch('sp_subcontract_items?select=item_id&limit=5000');
+    subcontractSet = new Set((rows || []).map(r => String(r.item_id).trim().toUpperCase()));
+    if (typeof recalcTrufig === 'function' && typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
+  } catch (e) { console.warn('Failed to load subcontract items:', e); }
+}
+function isSubcontract(sku) { return subcontractSet.has(String(sku).trim().toUpperCase()); }
+loadSubcontract();
 
 function renderSSView() {
   const body = document.getElementById('ss-body');
@@ -6785,8 +6824,10 @@ function renderBuildabilityPanel(fgSku, colspan) {
 // Cycle guard: max depth 6, visited Set per FG.
 let cascadeDemand = new Map();
 
+let subcontractDepth = new Map(); // subcontract item (upper) -> min BOM depth (for netting order)
 function computeCascadeDemand(fgList) {
   const acc = new Map();  // key = componentSkuUpper
+  subcontractDepth = new Map();
   const MAX_DEPTH = 6;
 
   const bomLookup = (parentSku) => {
@@ -6845,13 +6886,21 @@ function computeCascadeDemand(fgList) {
         const cSkuUp = String(c.compSku).toUpperCase();
         if (visited.has(cSkuUp)) return;  // cycle guard
         const effQty = runningMult * c.qty;
-        // Explode a sub-assembly when it is a registered phantom. Check the SSOT phantom
-        // registry (sp_phantom_items via isPhantom) FIRST — it does not depend on the PL
-        // cache being loaded. isPhantomSku (PL header) is a secondary signal for phantom
-        // sub-assemblies that PL mirrors but the registry may not yet list. Without this,
-        // a registered phantom (e.g. 802-0016) whose PL cache has not loaded is treated as
-        // a leaf, and its children (e.g. 142-0014) silently drop out of the cascade demand.
-        const shouldRecurse = isPhantom(c.compSku) || isPhantomSku(c.compSku);
+        // Subcontract items are LEAVES in this gross pass: they get their own buy row + PO,
+        // and their components are exploded separately (net of the item's on-hand) in the
+        // subcontract netting pass in recalcTrufig. Record min depth to net shallow-first.
+        const isSub = isSubcontract(c.compSku);
+        if (isSub) {
+          const prev = subcontractDepth.get(cSkuUp);
+          if (prev === undefined || depth + 1 < prev) subcontractDepth.set(cSkuUp, depth + 1);
+        }
+        // Explode a sub-assembly when it is a registered phantom (and not subcontract). Check
+        // the SSOT phantom registry (sp_phantom_items via isPhantom) FIRST — it does not
+        // depend on the PL cache being loaded. isPhantomSku (PL header) is a secondary signal
+        // for phantom sub-assemblies that PL mirrors but the registry may not yet list.
+        // Without this, a registered phantom (e.g. 802-0016) whose PL cache has not loaded is
+        // treated as a leaf, and its children (e.g. 142-0014) silently drop from the cascade.
+        const shouldRecurse = !isSub && (isPhantom(c.compSku) || isPhantomSku(c.compSku));
         if (shouldRecurse) {
           // Phantom sub-assembly: DO NOT count it as a leaf; recurse into its children.
           visited.add(cSkuUp);
@@ -6859,7 +6908,7 @@ function computeCascadeDemand(fgList) {
           visited.delete(cSkuUp);
           return;
         }
-        // Leaf (real component or stocked sub-assembly): accumulate.
+        // Leaf (real component, subcontract item, or stocked sub-assembly): accumulate.
         const contribution = fgMau * effQty;
         let row = acc.get(cSkuUp);
         if (!row) {
@@ -6880,6 +6929,100 @@ function toggleTrufigHelp() {
   const el = document.getElementById('tf-help');
   if (!el) return;
   el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+}
+
+// ── Subcontract config modal: curate sp_subcontract_items + per-BOM-line furnished_by ──
+function openSubconModal() {
+  const m = document.getElementById('tf-subcon-modal');
+  if (!m) return;
+  m.style.display = 'block';
+  renderSubconModal();
+}
+function closeSubconModal() {
+  const m = document.getElementById('tf-subcon-modal');
+  if (m) m.style.display = 'none';
+}
+function renderSubconModal() {
+  const el = document.getElementById('tf-subcon-list');
+  if (!el) return;
+  const items = [...subcontractSet].sort();
+  if (!items.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">Aún no hay items de subcontrato. Agrega uno arriba (por ejemplo 802-0016).</div>';
+    return;
+  }
+  el.innerHTML = items.map(key => {
+    const bom = bomList.find(b => String(b.parentSku).trim().toUpperCase() === key);
+    const mrp = getMRPItem(key);
+    const desc = (mrp && mrp.desc) || (bom && bom.parentName) || '';
+    const linesHtml = (bom && bom.components.length)
+      ? bom.components.map(c => {
+          const fb = c.furnishedBy || 'us';
+          const cid = esc(String(c.compSku));
+          return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
+            <span style="font-family:var(--mono);min-width:120px">${cid}</span>
+            <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.compName || '')}</span>
+            <span style="color:var(--muted);font-family:var(--mono)">x${c.qtyPerParent}</span>
+            <select onchange="setFurnishedBy('${esc(key)}','${cid}',this.value)" style="font-size:11px">
+              <option value="us"${fb === 'us' ? ' selected' : ''}>Nosotros surtimos</option>
+              <option value="supplier"${fb === 'supplier' ? ' selected' : ''}>Proveedor surte</option>
+            </select>
+          </div>`;
+        }).join('')
+      : '<div style="color:var(--muted);font-size:11px;padding:4px 0">Sin BOM cargado para este item (no cascadea componentes).</div>';
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-family:var(--mono);font-weight:600">${esc(key)}</span>
+        <span style="color:var(--muted);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(desc)}</span>
+        <button class="btn btn-sm" onclick="removeSubcontractItem('${esc(key)}')" style="border-color:var(--danger);color:var(--danger)">Quitar</button>
+      </div>
+      <div style="border-top:1px solid var(--rule-soft);padding-top:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Componentes del BOM — ¿quién los surte?</div>
+        ${linesHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function addSubcontractItem() {
+  const inp = document.getElementById('tf-subcon-add');
+  const raw = (inp && inp.value || '').trim();
+  if (!raw) return;
+  const key = raw.toUpperCase();
+  try {
+    await sbFetch('sp_subcontract_items', {
+      method: 'POST', write: true,
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: [{ item_id: key, created_by: 'sp-ui', updated_at: new Date().toISOString() }],
+    });
+    subcontractSet.add(key);
+    inp.value = '';
+    renderSubconModal();
+    if (typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
+  } catch (e) { alert('No se pudo agregar: ' + (e.message || e)); }
+}
+async function removeSubcontractItem(key) {
+  key = String(key).trim().toUpperCase();
+  if (!confirm('¿Quitar ' + key + ' de subcontrato? Volverá a tratarse como make/buy normal.')) return;
+  try {
+    await sbFetch('sp_subcontract_items?item_id=eq.' + encodeURIComponent(key), { method: 'DELETE', write: true });
+    subcontractSet.delete(key);
+    renderSubconModal();
+    if (typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
+  } catch (e) { alert('No se pudo quitar: ' + (e.message || e)); }
+}
+async function setFurnishedBy(parentKey, compSku, val) {
+  try {
+    const bom = bomList.find(b => String(b.parentSku).trim().toUpperCase() === String(parentKey).trim().toUpperCase());
+    const line = bom && bom.components.find(c => String(c.compSku).trim().toUpperCase() === String(compSku).trim().toUpperCase());
+    if (line && line.id) {
+      await sbFetch('sp_bom_lines?id=eq.' + encodeURIComponent(line.id), {
+        method: 'PATCH', write: true,
+        headers: { 'Prefer': 'return=minimal' },
+        body: { furnished_by: val },
+      });
+      line.furnishedBy = val;
+    }
+    if (typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
+  } catch (e) { alert('No se pudo actualizar: ' + (e.message || e)); }
 }
 
 function recalcTrufig() {
@@ -6927,14 +7070,11 @@ function recalcTrufig() {
       totalUsage: +m.totalUse || 0, erpPOs: m.erpPOs || new Array(12).fill(0) };
   };
   const trufigBaseSet = new Set(rawItemsTrufig.map(r => String(r.itemId).trim().toUpperCase()));
-  const cascadeRows = [];
-  cascadeDemand.forEach((entry, key) => {
-    if (trufigBaseSet.has(key) || isPhantom(key)) return;  // already a base row, or a phantom (structural)
-    cascadeRows.push(trufigCompRaw(key, entry.compSku));
-  });
-  const trufigRows = rawItemsTrufig.concat(cascadeRows);
 
-  itemsTrufig = trufigRows.map(raw => {
+  // Build one plan row. subExtraMonthly (number[12] | null) is per-month demand injected by
+  // the subcontract netting pass: a subcontracted item's NET monthly PO drives dependent
+  // demand for the components it is furnished by us. It adds to the flat cascade/own demand.
+  const buildRow = (raw, subExtraMonthly) => {
     const mauInfo  = getEffectiveMAU(raw.itemId, +raw.mau || 0);
     const mau      = mauInfo.mau;
     const mauSource = mauInfo.source;
@@ -6945,24 +7085,28 @@ function recalcTrufig() {
     const cascadeEntry = cascadeDemand.get(cascadeKey);
     const cascadeMau = cascadeEntry ? cascadeEntry.totalMau : 0;
     const cascadeContributors = cascadeEntry ? cascadeEntry.contributors : [];
+    const sub = subExtraMonthly || null;
+    const subTotal = sub ? sub.reduce((a, b) => a + (b || 0), 0) : 0;
     const projMauOwn = mauSource === 'derived' ? mau : (+raw.projMau || mau);
     // Cascade demand from the Trufig FG plan drives the component (which has no SS of its own).
     // Pure FGs have cascadeMau 0, so their numbers are unchanged.
     const projMau  = Math.max(projMauOwn, cascadeMau);
     const lt       = getLT(raw);
-    const pmu = new Array(12).fill(projMau);
+    // Per-month demand: flat own/cascade rate + per-month subcontract-driven demand.
+    const pmu = new Array(12).fill(0).map((_, i) => projMau + (sub ? (sub[i] || 0) : 0));
     let ss = pmu.map(p => Math.ceil(p * ssMult));
     const os = pmu.map(p => Math.ceil(p * osMult));
     const manualSS = getManualSS(raw.itemId);
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
-    // Cascade components carry NO safety stock of their own: the buffer lives at the FG level
-    // (the FG SS already drives enough FG production, which is what cascadeMau reflects). So a
-    // pure cascade component plans lot-for-lot, covering demand net of on-hand/PO with no cushion.
-    else if (cascadeMau > 0 && mauSource !== 'derived') ss = new Array(12).fill(0);
+    // Cascade / subcontract-driven components carry NO safety stock of their own: the buffer
+    // lives at the FG level (the FG SS already drives enough FG production/PO, which is what
+    // the demand reflects). So a pure dependent component plans lot-for-lot, covering demand
+    // net of on-hand/PO with no cushion.
+    else if ((cascadeMau > 0 || subTotal > 0) && mauSource !== 'derived') ss = new Array(12).fill(0);
 
     const itemIS = getIS(raw.itemId);
-    const hasDemand = mau > 0 || cascadeMau > 0 || manualSS !== null;
-    const isNoUsage = (!hasDemand || mau === 999 || itemIS === 'non_plan' || isPhantom(raw.itemId));
+    const hasDemand = mau > 0 || cascadeMau > 0 || subTotal > 0 || manualSS !== null;
+    const isNoUsage = (!hasDemand || mau === 999 || itemIS === 'non_plan' || (isPhantom(raw.itemId) && !isSubcontract(raw.itemId)));
 
     // Cascade month-by-month — effective OH honors PS/WMS toggle
     const effOHTf = getEffectiveOnHand(raw.itemId, raw.onHand);
@@ -7009,10 +7153,63 @@ function recalcTrufig() {
       effectiveSSSource: manualSS !== null ? 'manual' : 'formula',
       months, suggested, suggestedTotal, kind, lt,
       cascadeMau, cascadeContributors,
+      subcontract: isSubcontract(raw.itemId),
+      subMau: subTotal / 12,
       inPlan: isInPlan(raw.itemId),
       openPid: getOpenPidQty(raw.itemId),
     };
+  };
+
+  // Preliminary rows: base (prefix-5) + Pass-1 cascade components. Enough to locate and net
+  // the subcontract items before their components are exploded.
+  const cascadeRows0 = [];
+  cascadeDemand.forEach((entry, key) => {
+    // Skip base rows and structural phantoms. A subcontract item that also happens to be
+    // listed as phantom still gets its own buy row (subcontract wins over phantom).
+    if (trufigBaseSet.has(key) || (isPhantom(key) && !isSubcontract(key))) return;
+    cascadeRows0.push(trufigCompRaw(key, entry.compSku));
   });
+  const rows0 = rawItemsTrufig.concat(cascadeRows0);
+  const rows0Keys = new Set(rows0.map(r => String(r.itemId).trim().toUpperCase()));
+
+  // Subcontract netting pass (month-accurate). Each subcontract item is bought from a
+  // supplier; its NET monthly replenishment (suggested PO from buildRow, already netted
+  // against its own on-hand/PO) drives dependent demand for the components WE furnish. Net
+  // shallow-first so a subcontract feeding another resolves before the deeper one.
+  const subDemand = new Map();  // component (upper) -> number[12]
+  const addSub = (comp, arr) => {
+    const k = String(comp).trim().toUpperCase();
+    const cur = subDemand.get(k) || new Array(12).fill(0);
+    for (let i = 0; i < 12; i++) cur[i] += arr[i] || 0;
+    subDemand.set(k, cur);
+  };
+  const subItems = rows0
+    .filter(r => isSubcontract(r.itemId))
+    .sort((a, b) => (subcontractDepth.get(String(a.itemId).toUpperCase()) ?? 99)
+                  - (subcontractDepth.get(String(b.itemId).toUpperCase()) ?? 99));
+  subItems.forEach(si => {
+    const key = String(si.itemId).trim().toUpperCase();
+    // Build this subcontract item's row WITH any demand it already received as a component of
+    // a shallower subcontract, so its net PO reflects total demand before exploding downward.
+    const row = buildRow(si, subDemand.get(key) || null);
+    const bom = bomList.find(b => String(b.parentSku).trim().toUpperCase() === key);
+    if (!bom) return;
+    bom.components.forEach(c => {
+      if ((c.furnishedBy || 'us') !== 'us') return;  // supplier-furnished: not our demand
+      const q = +c.qtyPerParent || 1;
+      addSub(c.compSku, row.suggested.map(s => s * q));
+    });
+  });
+
+  // Final row set: add component rows that appear ONLY via subcontract demand (their only
+  // path is through a subcontract item, so Pass 1 never created them).
+  const extraRows = [];
+  subDemand.forEach((_, key) => {
+    if (rows0Keys.has(key) || (isPhantom(key) && !isSubcontract(key))) return;
+    extraRows.push(trufigCompRaw(key, key));
+  });
+  const trufigRows = rows0.concat(extraRows);
+  itemsTrufig = trufigRows.map(raw => buildRow(raw, subDemand.get(String(raw.itemId).trim().toUpperCase()) || null));
   renderTrufigTable();
 }
 
@@ -7192,7 +7389,9 @@ function renderTrufigTable() {
     }[it.status] || '';
     const ssMark  = it.effectiveSSSource === 'manual' ? ' <span style="font-size:9px;color:var(--overst)" title="Manual SS from TRUFIG SS tab">🛡️</span>' : '';
     const mauMark = it.mauSource === 'derived' ? ` <span style="font-size:9px;color:var(--accent)" title="Derived: SS / ${it.mauMonths} months">📐</span>` : '';
-    const kindTag = it.kind === 'make'
+    const kindTag = it.subcontract
+      ? '<span class="badge" style="background:rgba(251,191,36,.15);color:#d97706" title="Subcontract: bought from a supplier (a PO), but we furnish its BOM components. Its net PO drives demand for those components.">🏭 SUBCON</span>'
+      : it.kind === 'make'
       ? '<span class="badge" style="background:rgba(0,163,225,.12);color:var(--accent)">MAKE</span>'
       : '<span class="badge b-muted">BUY</span>';
     const groupBadge = it.itemGroup === 'FINISHED_GOODS' ? '<span class="badge b-ok" title="Finished Good">🎯 FG</span>'
