@@ -6954,8 +6954,7 @@ function renderTrufigThead() {
     monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${bg};${opa}">${label}</th>`);
   }
   el.innerHTML = `<tr>
-    <th class="is-th" style="text-align:center;width:34px" title="In plan? Default on for items with Safety Stock. A planned FG cascades to its components; unplanned rows are hidden unless a plan FG uses them.">Plan</th>
-    <th class="is-th">Status</th>
+    <th class="is-th" title="Checkbox = in plan. Default on for items with Safety Stock.">Plan · Status</th>
     <th class="is-th" style="white-space:nowrap">Item ID</th>
     <th class="is-th">Description</th>
     <th class="is-th">Supplier</th>
@@ -7025,7 +7024,7 @@ function renderOnHandCell(it) {
 
 function renderTrufigTable() {
   renderTrufigThead();
-  const COLSPAN = 26; // 13 fixed (added Plan + Cascade MAU) + 12 months + 1 source
+  const COLSPAN = 25; // 12 fixed (Plan+Status merged, Cascade MAU) + 12 months + 1 source
   if (!rawItemsTrufig.length) {
     document.getElementById('tf-body').innerHTML = `<tr><td colspan="${COLSPAN}" style="text-align:center;color:var(--muted);padding:40px">No Trufig items yet. Upload main MRP (Supply Plan tab) or Upload Instor here. Or set Manual SS values in the TRUFIG SS tab — items with SS also appear here.</td></tr>`;
     document.getElementById('tf-count').textContent = '';
@@ -7087,7 +7086,7 @@ function renderTrufigTable() {
   document.getElementById('tf-count').textContent = `${list.length} of ${total}`;
 
   const horizon = getTrufigHorizon();
-  const COLSPAN_ROW = 26;
+  const COLSPAN_ROW = 25;
   document.getElementById('tf-body').innerHTML = list.map(it => {
     // Only Finished Goods (real ones with itemGroup or prefix 5 fallback) can be expanded
     const isFg = (String(it.itemGroup||'').toUpperCase() === 'FINISHED_GOODS')
@@ -7148,8 +7147,7 @@ function renderTrufigTable() {
 
     const planToggle = `<input type="checkbox" ${it.inPlan ? 'checked' : ''} onclick="event.stopPropagation();setInPlan('${esc(it.itemId).replace(/'/g,"\\'")}', this.checked)" title="Include in plan (a planned FG cascades demand to its components)">`;
     const mainRow = `<tr style="border-bottom:1px solid var(--border);${rowBg}">
-      <td style="padding:6px 6px;text-align:center;width:34px">${planToggle}</td>
-      <td style="padding:6px 10px">${chevron} ${statusBadge}</td>
+      <td style="padding:6px 10px;white-space:nowrap">${planToggle} ${chevron} ${statusBadge}</td>
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);white-space:nowrap">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
