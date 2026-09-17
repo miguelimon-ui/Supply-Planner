@@ -3484,7 +3484,14 @@ function getMRPItem(sku) {
 }
 
 async function loadBOMsFromSupabase() {
-  const boms = await sbFetch('sp_boms?select=*,sp_bom_lines(*)&order=created_at.desc&limit=20000');
+  // Server caps at 1000 rows per request (db-max-rows), so paginate to get all BOMs.
+  let boms = [];
+  for (let off = 0; off < 50000; off += 1000) {
+    const page = await sbFetch(`sp_boms?select=*,sp_bom_lines(*)&order=parent_sku.asc&limit=1000&offset=${off}`);
+    if (!page || !page.length) break;
+    boms = boms.concat(page);
+    if (page.length < 1000) break;
+  }
   bomList = (boms || []).map(b => ({
     id: b.id, parentSku: b.parent_sku, parentName: b.parent_name,
     fgOHOverride: b.fg_oh_override,
