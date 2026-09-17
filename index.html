@@ -6911,7 +6911,7 @@ function recalcTrufig() {
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
 
     const itemIS = getIS(raw.itemId);
-    const isNoUsage = ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan');
+    const isNoUsage = ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan' || isPhantom(raw.itemId));
 
     // Cascade month-by-month — effective OH honors PS/WMS toggle
     const effOHTf = getEffectiveOnHand(raw.itemId, raw.onHand);
@@ -7068,8 +7068,8 @@ function renderTrufigTable() {
   const fView = document.getElementById('tf-view') ? document.getElementById('tf-view').value : '';
   const viewMatch = (it) => {
     if (!fView) return true;
-    if (fView === 'make') return it.kind === 'make';
-    if (fView === 'buy')  return it.kind === 'buy';
+    if (fView === 'make') return it.kind === 'make' && !isPhantom(it.itemId);
+    if (fView === 'buy')  return it.kind === 'buy' && !isPhantom(it.itemId);
     const g = (it.itemGroup || '').toUpperCase();
     if (fView === 'fg')        return g === 'FINISHED_GOODS';
     if (fView === 'component') return g === 'COMPONENT';
