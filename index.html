@@ -6845,7 +6845,13 @@ function computeCascadeDemand(fgList) {
         const cSkuUp = String(c.compSku).toUpperCase();
         if (visited.has(cSkuUp)) return;  // cycle guard
         const effQty = runningMult * c.qty;
-        const shouldRecurse = isPhantomSku(c.compSku);
+        // Explode a sub-assembly when it is a registered phantom. Check the SSOT phantom
+        // registry (sp_phantom_items via isPhantom) FIRST — it does not depend on the PL
+        // cache being loaded. isPhantomSku (PL header) is a secondary signal for phantom
+        // sub-assemblies that PL mirrors but the registry may not yet list. Without this,
+        // a registered phantom (e.g. 802-0016) whose PL cache has not loaded is treated as
+        // a leaf, and its children (e.g. 142-0014) silently drop out of the cascade demand.
+        const shouldRecurse = isPhantom(c.compSku) || isPhantomSku(c.compSku);
         if (shouldRecurse) {
           // Phantom sub-assembly: DO NOT count it as a leaf; recurse into its children.
           visited.add(cSkuUp);
