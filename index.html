@@ -3459,6 +3459,7 @@ function renderHealthView() {
 // BOM TAB
 // ─────────────────────────────────────────────
 let bomList = [];          // from Supabase sp_boms + sp_bom_lines
+let bomParentSet = new Set(); // parent SKUs that have a BOM (for make/buy derivation)
 let bomEditId = null;      // null = new, uuid = editing
 let bomComponents = [];    // temp state for modal
 
@@ -3504,6 +3505,8 @@ async function loadBOMsFromSupabase() {
       sortOrder: l.sort_order || 0
     })).sort((a,b) => a.sortOrder - b.sortOrder)
   }));
+  bomParentSet = new Set(bomList.map(b => String(b.parentSku || '').trim().toUpperCase()));
+  if (typeof recalcTrufig === 'function' && typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
 }
 
 function renderBOMView() {
@@ -4715,8 +4718,13 @@ function getManualSS(itemId) {
 }
 
 function getMakeOrBuy(itemId) {
-  const rec = safetyStock[String(itemId).trim().toUpperCase()];
-  return rec ? rec.make_or_buy : 'buy';
+  const key = String(itemId).trim().toUpperCase();
+  const rec = safetyStock[key];
+  // Explicit MAKE from the TRUFIG SS tab wins (manual override).
+  if (rec && rec.make_or_buy === 'make') return 'make';
+  // Otherwise derive (Miguel's rule): has a real BOM (is a parent) and not phantom → make; else buy.
+  if (!isPhantom(itemId) && bomParentSet.has(key)) return 'make';
+  return 'buy';
 }
 
 // Planning scope: an FG is "in plan" when its toggle is on (default = has SS).
