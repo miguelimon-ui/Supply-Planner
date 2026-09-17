@@ -3484,7 +3484,7 @@ function getMRPItem(sku) {
 }
 
 async function loadBOMsFromSupabase() {
-  const boms = await sbFetch('sp_boms?select=*,sp_bom_lines(*)&order=created_at.desc');
+  const boms = await sbFetch('sp_boms?select=*,sp_bom_lines(*)&order=created_at.desc&limit=20000');
   bomList = (boms || []).map(b => ({
     id: b.id, parentSku: b.parent_sku, parentName: b.parent_name,
     fgOHOverride: b.fg_oh_override,
