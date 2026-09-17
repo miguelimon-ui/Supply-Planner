@@ -6954,9 +6954,9 @@ function renderTrufigThead() {
     monthHdrs.push(`<th class="is-th" style="text-align:right;min-width:74px;background:${bg};${opa}">${label}</th>`);
   }
   el.innerHTML = `<tr>
-    <th class="is-th" style="text-align:center" title="In plan? Default on for items with Safety Stock. A planned FG cascades to its components; unplanned rows are hidden unless a plan FG uses them.">Plan</th>
+    <th class="is-th" style="text-align:center;width:34px" title="In plan? Default on for items with Safety Stock. A planned FG cascades to its components; unplanned rows are hidden unless a plan FG uses them.">Plan</th>
     <th class="is-th">Status</th>
-    <th class="is-th" style="min-width:88px;white-space:nowrap">Item ID</th>
+    <th class="is-th" style="white-space:nowrap">Item ID</th>
     <th class="is-th">Description</th>
     <th class="is-th">Supplier</th>
     <th class="is-th" style="text-align:center">Group</th>
@@ -7148,9 +7148,9 @@ function renderTrufigTable() {
 
     const planToggle = `<input type="checkbox" ${it.inPlan ? 'checked' : ''} onclick="event.stopPropagation();setInPlan('${esc(it.itemId).replace(/'/g,"\\'")}', this.checked)" title="Include in plan (a planned FG cascades demand to its components)">`;
     const mainRow = `<tr style="border-bottom:1px solid var(--border);${rowBg}">
-      <td style="padding:6px 10px;text-align:center">${planToggle}</td>
+      <td style="padding:6px 6px;text-align:center;width:34px">${planToggle}</td>
       <td style="padding:6px 10px">${chevron} ${statusBadge}</td>
-      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);white-space:nowrap;min-width:88px">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);white-space:nowrap">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
       <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
       <td style="padding:6px 10px;text-align:center">${groupBadge}</td>
