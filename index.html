@@ -4768,6 +4768,19 @@ function getEffectiveSSFromItem(item) {
 
 loadSafetyStock().catch(e => console.warn('Failed to load safety stock:', e));
 
+// Phantom items (from PS ZZ_ITEM_PHANTOM_MAKE). Phantoms are paper sub-assemblies —
+// you don't buy them, you buy their components. Grayed out in the Trufig view.
+let phantomSet = new Set();
+async function loadPhantoms() {
+  try {
+    const rows = await sbFetch('sp_phantom_items?select=item_id&limit=5000');
+    phantomSet = new Set((rows || []).map(r => String(r.item_id).trim().toUpperCase()));
+    if (typeof recalcTrufig === 'function' && typeof trufigLoaded !== 'undefined' && trufigLoaded) renderTrufigTable();
+  } catch (e) { console.warn('Failed to load phantoms:', e); }
+}
+function isPhantom(sku) { return phantomSet.has(String(sku).trim().toUpperCase()); }
+loadPhantoms();
+
 function renderSSView() {
   const body = document.getElementById('ss-body');
   const search = (document.getElementById('ss-search').value || '').toLowerCase();
@@ -6641,10 +6654,11 @@ function renderBuildabilityPanel(fgSku, colspan) {
     const isBottleneck = b.bottleneckKey && String(n.compSku).toUpperCase() === b.bottleneckKey;
     const isSub = n.kind === 'sub-assembly';
     const isEmptySub = n.kind === 'empty-sub';
-    const rowStyle = isBottleneck ? 'background:rgba(251,191,36,.10)'
+    const isPhNode = isPhantom(n.compSku);
+    const rowStyle = (isBottleneck ? 'background:rgba(251,191,36,.10)'
       : isSub ? 'background:rgba(0,163,225,.04)'
       : n.inHouse ? 'background:rgba(0,163,225,.03);opacity:.7'
-      : n.shared ? 'background:rgba(232,121,249,.03)' : '';
+      : n.shared ? 'background:rgba(232,121,249,.03)' : '') + (isPhNode ? ';opacity:.35' : '');
     const indentPx = 8 + (n.depth * 20);
     // Tree marker: └─ for depth > 0
     const marker = n.depth > 0 ? '<span style="color:var(--muted);font-family:var(--mono);margin-right:6px">└─</span>' : '';
@@ -7146,10 +7160,12 @@ function renderTrufigTable() {
     }).join('');
 
     const planToggle = `<input type="checkbox" ${it.inPlan ? 'checked' : ''} onclick="event.stopPropagation();setInPlan('${esc(it.itemId).replace(/'/g,"\\'")}', this.checked)" title="Include in plan (a planned FG cascades demand to its components)">`;
-    const mainRow = `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+    const isPh = isPhantom(it.itemId);
+    const phBadge = isPh ? ' <span class="badge" style="background:rgba(148,163,184,.15);color:var(--muted);font-size:9px" title="Phantom — no se compra; se compran sus componentes">👻 PHANTOM</span>' : '';
+    const mainRow = `<tr style="border-bottom:1px solid var(--border);${rowBg}${isPh ? ';opacity:.4' : ''}"${isPh ? ' title="Phantom: no considerar para compra"' : ''}>
       <td style="padding:6px 10px;white-space:nowrap">${planToggle} ${chevron} ${statusBadge}</td>
       <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--accent);white-space:nowrap">${formatSkuHtml(it.itemId, 'color:var(--accent)')}</td>
-      <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}</td>
+      <td style="padding:6px 10px;font-size:12px;max-width:220px">${esc(it.desc||'')}${phBadge}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
       <td style="padding:6px 10px;text-align:center">${groupBadge}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${renderOnHandCell(it)}</td>
