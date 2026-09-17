@@ -6308,6 +6308,11 @@ let rawItemsTrufig = [];        // union of base (main MRP prefix 5) + Instor ov
 let itemsTrufig = [];           // computed (PMU/SS/status) per row
 let trufigLoaded = false;       // guard so we only load once per session (unless user refreshes)
 
+// Trufig scope predicate. A real Trufig SKU is 5 + four digits, with an optional
+// short letter suffix (e.g. 50410WHT). Plain "starts with 5" leaks James items
+// like 5X-EC, so require the full 5-digit pattern.
+function isTrufigSku(sku) { return /^5[0-9]{4}([A-Z]{0,3})?$/.test(String(sku || '').trim().toUpperCase()); }
+
 function trufigMapMRPRow(r) {
   return {
     itemId: r.item_id, desc: r.description || '', suppId: r.supplier_id || '', suppName: r.supplier_name || '',
@@ -6368,8 +6373,10 @@ function getOpenPidQty(sku) { return (trufigPids.bySku && trufigPids.bySku[Strin
 
 async function loadTrufigPids() {
   try {
-    const rows = await sbFetch('sp_trufig_pids?select=pid,product_sku,qty,group_title,updated_at&order=pid.asc.nullslast&limit=2000');
-    if (!Array.isArray(rows)) return;
+    const rowsRaw = await sbFetch('sp_trufig_pids?select=pid,product_sku,qty,group_title,updated_at&order=pid.asc.nullslast&limit=2000');
+    if (!Array.isArray(rowsRaw)) return;
+    // Drop items that only leaked into Trufig scope by starting with 5 (e.g. James 5X-EC).
+    const rows = rowsRaw.filter(r => !r.product_sku || isTrufigSku(r.product_sku));
     const pids = rows.filter(r => r.pid);
     const awaiting = rows.filter(r => !r.pid);
     const distinctPids = new Set(pids.map(r => r.pid)).size;
@@ -6889,7 +6896,7 @@ function recalcTrufig() {
   const fgList = rawItemsTrufig
     .filter(r => {
       const g = (r.itemGroup || '').toUpperCase();
-      const isFG = g === 'FINISHED_GOODS' || (!g && String(r.itemId).startsWith('5'));
+      const isFG = g === 'FINISHED_GOODS' || (!g && isTrufigSku(r.itemId));
       const info = getEffectiveMAU(r.itemId, +r.mau || 0);
       return isFG && info.mau > 0 && isInPlan(r.itemId);
     })
@@ -7132,7 +7139,7 @@ function renderTrufigTable() {
   document.getElementById('tf-body').innerHTML = list.map(it => {
     // Only Finished Goods (real ones with itemGroup or prefix 5 fallback) can be expanded
     const isFg = (String(it.itemGroup||'').toUpperCase() === 'FINISHED_GOODS')
-              || (!it.itemGroup && String(it.itemId).startsWith('5'));
+              || (!it.itemGroup && isTrufigSku(it.itemId));
     const fgKey = String(it.itemId).toUpperCase();
     const isExpanded = isFg && expandedFgs.has(fgKey);
     const chevron = isFg
@@ -7321,7 +7328,7 @@ async function applyInstor(rows, fileName) {
   const aggregated = [...bySku.values()];
   const totalRows = data.length;
   const uniqueSKUs = aggregated.length;
-  const prefix5 = aggregated.filter(r => r.sku.startsWith('5'));
+  const prefix5 = aggregated.filter(r => isTrufigSku(r.sku));
 
   // Breakdown by BU for the Trufig subset (helps sanity check MNDIN presence)
   const buCounter = {};
@@ -7878,7 +7885,7 @@ function computeAndRenderShortage(force) {
 // A parent qualifies if it has an active BOM in PL AND matches the scope filter.
 function shortageIsFgInScope(sku, scope, activeOnly) {
   const s = String(sku || '');
-  if (scope === 'trufig' && !s.startsWith('5')) return false;
+  if (scope === 'trufig' && !isTrufigSku(s)) return false;
   if (scope === 'james'  && !s.startsWith('6')) return false;
   if (scope === 'pro'    && !s.startsWith('4')) return false;
   if (activeOnly) {
