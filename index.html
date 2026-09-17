@@ -6949,6 +6949,10 @@ function recalcTrufig() {
     const os = pmu.map(p => Math.ceil(p * osMult));
     const manualSS = getManualSS(raw.itemId);
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
+    // Cascade components carry NO safety stock of their own: the buffer lives at the FG level
+    // (the FG SS already drives enough FG production, which is what cascadeMau reflects). So a
+    // pure cascade component plans lot-for-lot, covering demand net of on-hand/PO with no cushion.
+    else if (cascadeMau > 0 && mauSource !== 'derived') ss = new Array(12).fill(0);
 
     const itemIS = getIS(raw.itemId);
     const hasDemand = mau > 0 || cascadeMau > 0 || manualSS !== null;
