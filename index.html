@@ -984,11 +984,13 @@ tbody tr.is-custom td:last-child{border-right:1px solid rgba(79,142,247,.2)}
       <span style="font-weight:600;font-size:13px;color:var(--text)">🔹 Trufig Plan</span>
       <span style="font-size:10px;color:var(--muted)">Prefix-5 SKUs · Instor overlay wins over main MRP</span>
       <input type="text" id="tf-search" placeholder="Item, description, supplier…" oninput="renderTrufigTable()" style="width:220px">
-      <select id="tf-view" onchange="renderTrufigTable()" title="Tania plans by FG. Carlos plans by component. Filter accordingly.">
+      <select id="tf-view" onchange="renderTrufigTable()" title="Tania makes (MAKE items). Carlos buys (BUY items). Regardless of FG/component.">
         <option value="">All views</option>
-        <option value="fg">🎯 Finished Goods (Tania)</option>
-        <option value="component">🔧 Components (Carlos)</option>
-        <option value="sub">🧩 Sub-assemblies</option>
+        <option value="make">🎯 Make · Tania</option>
+        <option value="buy">🛒 Buy · Carlos</option>
+        <option value="fg">— Finished Goods</option>
+        <option value="component">— Components</option>
+        <option value="sub">— Sub-assemblies</option>
         <option value="ungrouped">— No Item Group</option>
       </select>
       <label style="font-size:12px;color:var(--text);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer" title="Solo el plan: FGs con Safety Stock + los componentes a los que cascadean. Apágalo para ver todo.">
@@ -4722,8 +4724,9 @@ function getMakeOrBuy(itemId) {
   const rec = safetyStock[key];
   // Explicit MAKE from the TRUFIG SS tab wins (manual override).
   if (rec && rec.make_or_buy === 'make') return 'make';
-  // Otherwise derive (Miguel's rule): has a real BOM (is a parent) and not phantom → make; else buy.
-  if (!isPhantom(itemId) && bomParentSet.has(key)) return 'make';
+  // Derive (Miguel's rule): phantom (paper structure) or has a real BOM → MAKE (Tania).
+  // A purchased leaf (no BOM) → BUY (Carlos). Keeps phantoms out of Carlos's buy list.
+  if (isPhantom(itemId) || bomParentSet.has(key)) return 'make';
   return 'buy';
 }
 
@@ -7065,6 +7068,8 @@ function renderTrufigTable() {
   const fView = document.getElementById('tf-view') ? document.getElementById('tf-view').value : '';
   const viewMatch = (it) => {
     if (!fView) return true;
+    if (fView === 'make') return it.kind === 'make';
+    if (fView === 'buy')  return it.kind === 'buy';
     const g = (it.itemGroup || '').toUpperCase();
     if (fView === 'fg')        return g === 'FINISHED_GOODS';
     if (fView === 'component') return g === 'COMPONENT';
