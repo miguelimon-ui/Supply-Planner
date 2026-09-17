@@ -6903,7 +6903,32 @@ function recalcTrufig() {
     .map(r => ({ sku: r.itemId, mau: getEffectiveMAU(r.itemId, +r.mau || 0).mau }));
   cascadeDemand = computeCascadeDemand(fgList);
 
-  itemsTrufig = rawItemsTrufig.map(raw => {
+  // Scope is the plan, not a SKU prefix: include cascade components that are not in the prefix-5
+  // base as their own rows, sourced from the full MRP dataset (rawItems via getMRPItem), so every
+  // component the Trufig FG plan needs shows up for Carlos (buy) and Tania (make).
+  const trufigCompRaw = (sku, orig) => {
+    const m = getMRPItem(sku);
+    const id = (m && m.itemId) || orig || sku;
+    const base = { itemId: id, description: '', onHand: 0, avail: 0, wip: 0, uom: 'EA', stdCost: 0, value: 0,
+      suppId: '', suppName: '', unitPx: 0, openPO: 0, 'openPO$': 0, pastDuePO: 0, 'pastDuePO$': 0,
+      totalUsage: 0, mau: 0, rawMau: 0, projMau: 0, erpPOs: new Array(12).fill(0), ebBalances: [],
+      qtyByUnit: {}, itemGroup: '', itemCategory: '', source: 'cascade' };
+    if (!m) return base;
+    return { ...base, itemId: id, description: m.desc || '', onHand: +m.onHand || 0, avail: +m.avail || 0,
+      wip: +m.wip || 0, uom: m.uom || 'EA', stdCost: +m.stdCost || 0, value: +m.value || 0,
+      suppId: m.suppId || '', suppName: m.suppName || '', unitPx: +m.unitPx || 0, openPO: +m.openPO || 0,
+      'openPO$': +m['openPO$'] || 0, pastDuePO: +m.pastDuePO || 0, 'pastDuePO$': +m['pastDuePO$'] || 0,
+      totalUsage: +m.totalUse || 0, erpPOs: m.erpPOs || new Array(12).fill(0) };
+  };
+  const trufigBaseSet = new Set(rawItemsTrufig.map(r => String(r.itemId).trim().toUpperCase()));
+  const cascadeRows = [];
+  cascadeDemand.forEach((entry, key) => {
+    if (trufigBaseSet.has(key) || isPhantom(key)) return;  // already a base row, or a phantom (structural)
+    cascadeRows.push(trufigCompRaw(key, entry.compSku));
+  });
+  const trufigRows = rawItemsTrufig.concat(cascadeRows);
+
+  itemsTrufig = trufigRows.map(raw => {
     const mauInfo  = getEffectiveMAU(raw.itemId, +raw.mau || 0);
     const mau      = mauInfo.mau;
     const mauSource = mauInfo.source;
@@ -6914,7 +6939,10 @@ function recalcTrufig() {
     const cascadeEntry = cascadeDemand.get(cascadeKey);
     const cascadeMau = cascadeEntry ? cascadeEntry.totalMau : 0;
     const cascadeContributors = cascadeEntry ? cascadeEntry.contributors : [];
-    const projMau  = mauSource === 'derived' ? mau : (+raw.projMau || mau);
+    const projMauOwn = mauSource === 'derived' ? mau : (+raw.projMau || mau);
+    // Cascade demand from the Trufig FG plan drives the component (which has no SS of its own).
+    // Pure FGs have cascadeMau 0, so their numbers are unchanged.
+    const projMau  = Math.max(projMauOwn, cascadeMau);
     const lt       = getLT(raw);
     const pmu = new Array(12).fill(projMau);
     let ss = pmu.map(p => Math.ceil(p * ssMult));
@@ -6923,7 +6951,8 @@ function recalcTrufig() {
     if (manualSS !== null) ss = new Array(12).fill(Math.ceil(manualSS));
 
     const itemIS = getIS(raw.itemId);
-    const isNoUsage = ((mau === 0 && manualSS === null) || mau === 999 || itemIS === 'non_plan' || isPhantom(raw.itemId));
+    const hasDemand = mau > 0 || cascadeMau > 0 || manualSS !== null;
+    const isNoUsage = (!hasDemand || mau === 999 || itemIS === 'non_plan' || isPhantom(raw.itemId));
 
     // Cascade month-by-month — effective OH honors PS/WMS toggle
     const effOHTf = getEffectiveOnHand(raw.itemId, raw.onHand);
