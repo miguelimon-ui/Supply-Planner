@@ -6363,7 +6363,8 @@ async function loadTrufigView(force) {
 }
 
 // ── Open Trufig PIDs (from Monday Scheduler board via sp_trufig_pids) ──────
-let trufigPids = { pids: [], awaiting: [], updatedAt: null };
+let trufigPids = { pids: [], awaiting: [], updatedAt: null, bySku: {} };
+function getOpenPidQty(sku) { return (trufigPids.bySku && trufigPids.bySku[String(sku).trim().toUpperCase()]) || 0; }
 
 async function loadTrufigPids() {
   try {
@@ -6372,9 +6373,12 @@ async function loadTrufigPids() {
     const pids = rows.filter(r => r.pid);
     const awaiting = rows.filter(r => !r.pid);
     const distinctPids = new Set(pids.map(r => r.pid)).size;
+    // Open-PID qty per SKU — production already in flight, subtracts from the suggested PID.
+    const bySku = {};
+    pids.forEach(r => { const k = String(r.product_sku || '').trim().toUpperCase(); if (k) bySku[k] = (bySku[k] || 0) + (+r.qty || 0); });
     trufigPids = {
       pids, awaiting,
-      distinctPids,
+      distinctPids, bySku,
       updatedAt: rows.reduce((m, r) => (r.updated_at && (!m || r.updated_at > m)) ? r.updated_at : m, null),
     };
     const cEl = document.getElementById('tf-cnt-pids');
@@ -6382,6 +6386,7 @@ async function loadTrufigPids() {
     if (cEl) cEl.textContent = distinctPids;
     if (aEl) aEl.textContent = awaiting.length;
     if (document.getElementById('tf-pids')?.style.display === 'block') renderTrufigPidsPanel();
+    if (typeof recalcTrufig === 'function' && typeof trufigLoaded !== 'undefined' && trufigLoaded) recalcTrufig();
   } catch (_) { /* non-fatal — the panel just stays empty */ }
 }
 
@@ -6917,7 +6922,9 @@ function recalcTrufig() {
     const effOHTf = getEffectiveOnHand(raw.itemId, raw.onHand);
     const months = [];
     const suggested = new Array(12).fill(0);
-    let bb = effOHTf + (raw.pastDuePO || 0);
+    // Open PIDs = production already in flight; counts as incoming supply so we don't
+    // re-suggest making what is already on the floor (mirrors open PO for buy items).
+    let bb = effOHTf + (raw.pastDuePO || 0) + getOpenPidQty(raw.itemId);
     for (let i = 0; i < 12; i++) {
       const erpPO = (raw.erpPOs && raw.erpPOs[i]) || 0;
       let endBB = Math.round(bb + erpPO - pmu[i]);
@@ -6957,6 +6964,7 @@ function recalcTrufig() {
       months, suggested, suggestedTotal, kind, lt,
       cascadeMau, cascadeContributors,
       inPlan: isInPlan(raw.itemId),
+      openPid: getOpenPidQty(raw.itemId),
     };
   });
   renderTrufigTable();
@@ -7189,7 +7197,7 @@ function renderTrufigTable() {
       <td style="padding:6px 10px;font-size:11px;color:var(--muted)">${esc(it.suppName||'')}</td>
       <td style="padding:6px 10px;text-align:center">${groupBadge}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${renderOnHandCell(it)}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmt(it.openPO)}${it.openPid > 0 ? `<div style="font-size:9px;color:var(--accent)" title="PIDs abiertos en producción — ya restados del PID sugerido">🏭 ${fmt(it.openPid)}</div>` : ''}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.mauSource==='derived' ? 'var(--accent)' : 'var(--muted)'}">${it.mau > 0 ? it.mau.toFixed(1) : '—'}${mauMark}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.cascadeMau > 0 ? 'var(--accent2)' : 'var(--muted)'}" title="${it.cascadeMau > 0 ? esc((it.cascadeContributors||[]).slice(0,8).map(c => `${c.fgSku}: ${c.contribution.toFixed(2)} (${c.fgMau.toFixed(1)}/mo × qty ${c.effectiveQty})`).join('  •  ') + ((it.cascadeContributors||[]).length > 8 ? `  •  +${(it.cascadeContributors||[]).length - 8} more` : '')) : 'No Trufig FG BOM includes this component (yet).'}">${it.cascadeMau > 0 ? it.cascadeMau.toFixed(1) : '—'}</td>
       <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${it.effectiveSSSource==='manual' ? 'var(--overst)' : 'var(--text)'}">${fmt(it.effectiveSS)}${ssMark}</td>
